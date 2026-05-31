@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS master_profile (
   updated_at        TIMESTAMPTZ DEFAULT now()
 );
 
+DROP TRIGGER IF EXISTS master_profile_updated_at ON master_profile;
 CREATE TRIGGER master_profile_updated_at
   BEFORE UPDATE ON master_profile
   FOR EACH ROW EXECUTE FUNCTION set_updated_at();
@@ -36,7 +37,7 @@ CREATE TABLE IF NOT EXISTS experiences (
   created_at        TIMESTAMPTZ DEFAULT now()
 );
 
-CREATE INDEX idx_experiences_profile_id ON experiences(profile_id);
+CREATE INDEX IF NOT EXISTS idx_experiences_profile_id ON experiences(profile_id);
 
 
 CREATE TABLE IF NOT EXISTS job_applications (
@@ -64,7 +65,7 @@ CREATE TABLE IF NOT EXISTS application_versions (
   created_at            TIMESTAMPTZ DEFAULT now()
 );
 
-CREATE INDEX idx_application_versions_application_id ON application_versions(application_id);
+CREATE INDEX IF NOT EXISTS idx_application_versions_application_id ON application_versions(application_id);
 
 
 -- Row Level Security
@@ -75,6 +76,7 @@ ALTER TABLE job_applications ENABLE ROW LEVEL SECURITY;
 ALTER TABLE application_versions ENABLE ROW LEVEL SECURITY;
 
 -- master_profile: each user owns exactly one profile matched by auth.uid()
+DROP POLICY IF EXISTS "Users can manage their own profile" ON master_profile;
 CREATE POLICY "Users can manage their own profile"
   ON master_profile
   FOR ALL
@@ -82,6 +84,7 @@ CREATE POLICY "Users can manage their own profile"
   WITH CHECK (profile_id = auth.uid());
 
 -- experiences: accessible when the parent profile belongs to the current user
+DROP POLICY IF EXISTS "Users can manage their own experiences" ON experiences;
 CREATE POLICY "Users can manage their own experiences"
   ON experiences
   FOR ALL
@@ -97,6 +100,7 @@ CREATE POLICY "Users can manage their own experiences"
   );
 
 -- job_applications: scoped to the authenticated user via user_id
+DROP POLICY IF EXISTS "Users can manage their own applications" ON job_applications;
 CREATE POLICY "Users can manage their own applications"
   ON job_applications
   FOR ALL
@@ -104,6 +108,7 @@ CREATE POLICY "Users can manage their own applications"
   WITH CHECK (user_id = auth.uid());
 
 -- application_versions: accessible when the parent application belongs to the current user
+DROP POLICY IF EXISTS "Users can manage their own application versions" ON application_versions;
 CREATE POLICY "Users can manage their own application versions"
   ON application_versions
   FOR ALL
