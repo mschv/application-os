@@ -70,6 +70,16 @@ export async function parseProfile(
 
 {
   "profile_id": "",
+  "contact_info": {
+    "contact_id": "",
+    "profile_id": "",
+    "full_name": "Full Name",
+    "email": "email@example.com",
+    "phone": "+1 555 000 0000",
+    "location": "City, Country",
+    "linkedin_url": "https://linkedin.com/in/handle",
+    "portfolio_url": "https://example.com"
+  },
   "experiences": [
     {
       "experience_id": "short-kebab-slug",
@@ -93,17 +103,61 @@ export async function parseProfile(
     }
   ],
   "skills": ["global skill 1", "global skill 2"],
-  "achievements": ["Dean's List 2021", "First place hackathon"],
-  "writing_preferences": ""
+  "achievements": ["First place hackathon 2023"],
+  "writing_preferences": "",
+  "education": [
+    {
+      "education_id": "short-kebab-slug",
+      "profile_id": "",
+      "degree": "B.S. Computer Science",
+      "institution": "University Name",
+      "graduation_date": "May 2020",
+      "gpa": "3.8"
+    }
+  ],
+  "languages": [
+    {
+      "language_id": "short-kebab-slug",
+      "profile_id": "",
+      "language": "Spanish",
+      "proficiency": "Conversational"
+    }
+  ],
+  "certifications": [
+    {
+      "certification_id": "short-kebab-slug",
+      "profile_id": "",
+      "name": "AWS Solutions Architect",
+      "issuer": "Amazon Web Services",
+      "date": "2022"
+    }
+  ],
+  "publications": [
+    {
+      "publication_id": "short-kebab-slug",
+      "profile_id": "",
+      "title": "Paper or Article Title",
+      "description": "Short description",
+      "date": "2021",
+      "url": "https://doi.org/..."
+    }
+  ],
+  "target_preferences": null
 }
 
 Rules:
-- Generate a unique kebab-case experience_id for each entry (e.g. "google-swe-2022")
-- Leave profile_id as empty string
+- Generate a unique kebab-case id slug for each experience, project, education, language, certification, and publication entry
+- Leave all profile_id and contact_id fields as empty string
 - All work and internship roles go in "experiences" with tags: ["experience"]
 - All personal and side projects go in "projects" with tags: ["project"]
 - All technical and professional skills go in the top-level "skills" array
-- Awards, honors, publications, and other achievements go in "achievements"
+- Degrees and academic credentials go in "education" — do NOT put them in "achievements"
+- "achievements" is for awards, honors, competitions, and recognition only (not degrees)
+- Languages with proficiency levels go in "languages"
+- Professional certifications go in "certifications"
+- Research papers, articles, and publications go in "publications"
+- Always set "target_preferences" to null — the user fills this in manually
+- Omit fields that are not present in the document (leave as empty string or empty array)
 - Leave "writing_preferences" as empty string
 - Return only the JSON object with no preamble or explanation`,
             },

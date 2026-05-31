@@ -10,6 +10,59 @@ export interface Experience {
   date_range: string;
 }
 
+export interface ContactInfo {
+  contact_id: string;
+  profile_id: string;
+  full_name: string;
+  email: string;
+  phone?: string;
+  location?: string;
+  linkedin_url?: string;
+  portfolio_url?: string;
+}
+
+export interface Education {
+  education_id: string;
+  profile_id: string;
+  degree: string;
+  institution: string;
+  graduation_date?: string;
+  gpa?: string;
+}
+
+export interface Language {
+  language_id: string;
+  profile_id: string;
+  language: string;
+  proficiency?: string;
+}
+
+export interface Certification {
+  certification_id: string;
+  profile_id: string;
+  name: string;
+  issuer?: string;
+  date?: string;
+}
+
+export interface Publication {
+  publication_id: string;
+  profile_id: string;
+  title: string;
+  description?: string;
+  date?: string;
+  url?: string;
+}
+
+export interface TargetPreferences {
+  preference_id: string;
+  profile_id: string;
+  target_titles: string[];
+  target_industries: string[];
+  work_mode?: string;
+  target_locations: string[];
+}
+
 export interface MasterProfile {
   profile_id: string;
   experiences: Experience[];
@@ -17,6 +70,12 @@ export interface MasterProfile {
   skills: string[];
   achievements: string[];
   writing_preferences: string;
+  contact_info: ContactInfo | null;
+  education: Education[];
+  languages: Language[];
+  certifications: Certification[];
+  publications: Publication[];
+  target_preferences: TargetPreferences | null;
 }
 
 export interface JobRequirements {

@@ -79,7 +79,7 @@ function ExperienceCard({
   );
 }
 
-export default function EvidenceReviewPage() {
+export default function ReviewExperiencePage() {
   const router = useRouter();
 
   const [appState, setAppState] = useState<AppState | null>(null);
@@ -233,7 +233,7 @@ export default function EvidenceReviewPage() {
       if (!result.success) throw new Error(result.error);
 
       sessionStorage.setItem("appState", JSON.stringify(result.data));
-      router.push("/output-review");
+      router.push("/review-output");
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Generation failed. Please try again."

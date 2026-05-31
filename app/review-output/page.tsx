@@ -25,7 +25,7 @@ function tabContent(state: AppState, tab: Tab): string | null | undefined {
   return state.application_responses;
 }
 
-export default function OutputReviewPage() {
+export default function ReviewOutputPage() {
   const router = useRouter();
 
   const [appState, setAppState] = useState<AppState | null>(null);
@@ -168,7 +168,7 @@ export default function OutputReviewPage() {
 
       sessionStorage.removeItem("appState");
       sessionStorage.removeItem("generateCoverLetter");
-      router.push(`/job-input?profile_id=${appState.profile_id}&approved=1`);
+      router.push(`/apply?profile_id=${appState.profile_id}&approved=1`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Save failed. Please try again.");
     } finally {

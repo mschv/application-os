@@ -12,7 +12,7 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
-function JobInputContent() {
+function ApplyContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -133,7 +133,7 @@ function JobInputContent() {
       // to avoid split sessionStorage state.
       sessionStorage.setItem("generateCoverLetter", JSON.stringify(generateCoverLetter));
 
-      router.push("/evidence-review");
+      router.push("/review-experience");
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Analysis failed. Please try again."
@@ -221,10 +221,10 @@ function JobInputContent() {
   );
 }
 
-export default function JobInputPage() {
+export default function ApplyPage() {
   return (
     <Suspense fallback={<div>Loading...</div>}>
-      <JobInputContent />
+      <ApplyContent />
     </Suspense>
   );
 }

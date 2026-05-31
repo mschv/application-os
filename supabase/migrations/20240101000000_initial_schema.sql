@@ -68,12 +68,95 @@ CREATE TABLE IF NOT EXISTS application_versions (
 CREATE INDEX IF NOT EXISTS idx_application_versions_application_id ON application_versions(application_id);
 
 
+CREATE TABLE IF NOT EXISTS contact_info (
+  contact_id        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  profile_id        UUID REFERENCES master_profile(profile_id) ON DELETE CASCADE,
+  full_name         TEXT NOT NULL,
+  email             TEXT,
+  phone             TEXT,
+  location          TEXT,
+  linkedin_url      TEXT,
+  portfolio_url     TEXT,
+  created_at        TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_contact_info_profile_id ON contact_info(profile_id);
+
+
+CREATE TABLE IF NOT EXISTS education (
+  education_id      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  profile_id        UUID REFERENCES master_profile(profile_id) ON DELETE CASCADE,
+  degree            TEXT NOT NULL,
+  institution       TEXT NOT NULL,
+  graduation_date   TEXT,
+  gpa               TEXT,
+  created_at        TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_education_profile_id ON education(profile_id);
+
+
+CREATE TABLE IF NOT EXISTS languages (
+  language_id       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  profile_id        UUID REFERENCES master_profile(profile_id) ON DELETE CASCADE,
+  language          TEXT NOT NULL,
+  proficiency       TEXT,
+  created_at        TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_languages_profile_id ON languages(profile_id);
+
+
+CREATE TABLE IF NOT EXISTS certifications (
+  certification_id  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  profile_id        UUID REFERENCES master_profile(profile_id) ON DELETE CASCADE,
+  name              TEXT NOT NULL,
+  issuer            TEXT,
+  date              TEXT,
+  created_at        TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_certifications_profile_id ON certifications(profile_id);
+
+
+CREATE TABLE IF NOT EXISTS publications (
+  publication_id    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  profile_id        UUID REFERENCES master_profile(profile_id) ON DELETE CASCADE,
+  title             TEXT NOT NULL,
+  description       TEXT,
+  date              TEXT,
+  url               TEXT,
+  created_at        TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_publications_profile_id ON publications(profile_id);
+
+
+CREATE TABLE IF NOT EXISTS target_preferences (
+  preference_id     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  profile_id        UUID REFERENCES master_profile(profile_id) ON DELETE CASCADE,
+  target_titles     TEXT[],
+  target_industries TEXT[],
+  work_mode         TEXT,
+  target_locations  TEXT[],
+  created_at        TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_target_preferences_profile_id ON target_preferences(profile_id);
+
+
 -- Row Level Security
 
 ALTER TABLE master_profile ENABLE ROW LEVEL SECURITY;
 ALTER TABLE experiences ENABLE ROW LEVEL SECURITY;
 ALTER TABLE job_applications ENABLE ROW LEVEL SECURITY;
 ALTER TABLE application_versions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE contact_info DISABLE ROW LEVEL SECURITY;
+ALTER TABLE education DISABLE ROW LEVEL SECURITY;
+ALTER TABLE languages DISABLE ROW LEVEL SECURITY;
+ALTER TABLE certifications DISABLE ROW LEVEL SECURITY;
+ALTER TABLE publications DISABLE ROW LEVEL SECURITY;
+ALTER TABLE target_preferences DISABLE ROW LEVEL SECURITY;
 
 -- master_profile: each user owns exactly one profile matched by auth.uid()
 DROP POLICY IF EXISTS "Users can manage their own profile" ON master_profile;
@@ -120,5 +203,101 @@ CREATE POLICY "Users can manage their own application versions"
   WITH CHECK (
     application_id IN (
       SELECT application_id FROM job_applications WHERE user_id = auth.uid()
+    )
+  );
+
+-- contact_info: scoped to the owning profile
+DROP POLICY IF EXISTS "Users can manage their own contact info" ON contact_info;
+CREATE POLICY "Users can manage their own contact info"
+  ON contact_info
+  FOR ALL
+  USING (
+    profile_id IN (
+      SELECT profile_id FROM master_profile WHERE profile_id = auth.uid()
+    )
+  )
+  WITH CHECK (
+    profile_id IN (
+      SELECT profile_id FROM master_profile WHERE profile_id = auth.uid()
+    )
+  );
+
+-- education
+DROP POLICY IF EXISTS "Users can manage their own education" ON education;
+CREATE POLICY "Users can manage their own education"
+  ON education
+  FOR ALL
+  USING (
+    profile_id IN (
+      SELECT profile_id FROM master_profile WHERE profile_id = auth.uid()
+    )
+  )
+  WITH CHECK (
+    profile_id IN (
+      SELECT profile_id FROM master_profile WHERE profile_id = auth.uid()
+    )
+  );
+
+-- languages
+DROP POLICY IF EXISTS "Users can manage their own languages" ON languages;
+CREATE POLICY "Users can manage their own languages"
+  ON languages
+  FOR ALL
+  USING (
+    profile_id IN (
+      SELECT profile_id FROM master_profile WHERE profile_id = auth.uid()
+    )
+  )
+  WITH CHECK (
+    profile_id IN (
+      SELECT profile_id FROM master_profile WHERE profile_id = auth.uid()
+    )
+  );
+
+-- certifications
+DROP POLICY IF EXISTS "Users can manage their own certifications" ON certifications;
+CREATE POLICY "Users can manage their own certifications"
+  ON certifications
+  FOR ALL
+  USING (
+    profile_id IN (
+      SELECT profile_id FROM master_profile WHERE profile_id = auth.uid()
+    )
+  )
+  WITH CHECK (
+    profile_id IN (
+      SELECT profile_id FROM master_profile WHERE profile_id = auth.uid()
+    )
+  );
+
+-- publications
+DROP POLICY IF EXISTS "Users can manage their own publications" ON publications;
+CREATE POLICY "Users can manage their own publications"
+  ON publications
+  FOR ALL
+  USING (
+    profile_id IN (
+      SELECT profile_id FROM master_profile WHERE profile_id = auth.uid()
+    )
+  )
+  WITH CHECK (
+    profile_id IN (
+      SELECT profile_id FROM master_profile WHERE profile_id = auth.uid()
+    )
+  );
+
+-- target_preferences
+DROP POLICY IF EXISTS "Users can manage their own target preferences" ON target_preferences;
+CREATE POLICY "Users can manage their own target preferences"
+  ON target_preferences
+  FOR ALL
+  USING (
+    profile_id IN (
+      SELECT profile_id FROM master_profile WHERE profile_id = auth.uid()
+    )
+  )
+  WITH CHECK (
+    profile_id IN (
+      SELECT profile_id FROM master_profile WHERE profile_id = auth.uid()
     )
   );
