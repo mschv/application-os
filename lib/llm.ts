@@ -4,6 +4,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { config } from "./config";
 import {
   JobRequirements,
+  MasterProfile,
   RetrievedExperience,
   CritiqueResult,
   Result,
@@ -35,6 +36,88 @@ function extractJson<T>(text: string): T {
     return JSON.parse(rawMatch[0]) as T;
   }
   throw new Error("No JSON object found in Claude response");
+}
+
+export async function parseProfile(
+  fileContent: string,
+  mimeType: string
+): Promise<Result<MasterProfile>> {
+  try {
+    const isPDF = mimeType === "application/pdf";
+    const source = isPDF
+      ? { type: "base64" as const, media_type: "application/pdf" as const, data: fileContent }
+      : {
+          type: "text" as const,
+          media_type: "text/plain" as const,
+          data: Buffer.from(fileContent, "base64").toString("utf-8"),
+        };
+
+    const message = await client.messages.create({
+      model: MODEL,
+      max_tokens: 4096,
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "document", source },
+            {
+              type: "text",
+              text: `Extract all career information from this document and return it as a JSON object with this exact structure:
+
+{
+  "profile_id": "",
+  "experiences": [
+    {
+      "experience_id": "short-kebab-slug",
+      "title": "Job Title at Company",
+      "description": "Role description and key responsibilities",
+      "skills": ["skill1", "skill2"],
+      "tags": ["experience"],
+      "metrics": ["Reduced latency by 40%"],
+      "date_range": "Jan 2022 – Present"
+    }
+  ],
+  "projects": [
+    {
+      "experience_id": "short-kebab-slug",
+      "title": "Project Name",
+      "description": "What you built and its impact",
+      "skills": ["skill1"],
+      "tags": ["project"],
+      "metrics": [],
+      "date_range": ""
+    }
+  ],
+  "skills": ["global skill 1", "global skill 2"],
+  "achievements": ["Dean's List 2021", "First place hackathon"],
+  "writing_preferences": ""
+}
+
+Rules:
+- Generate a unique kebab-case experience_id for each entry (e.g. "google-swe-2022")
+- Leave profile_id as empty string
+- All work and internship roles go in "experiences" with tags: ["experience"]
+- All personal and side projects go in "projects" with tags: ["project"]
+- All technical and professional skills go in the top-level "skills" array
+- Awards, honors, publications, and other achievements go in "achievements"
+- Leave "writing_preferences" as empty string
+- Return only the JSON object with no preamble or explanation`,
+            },
+          ],
+        },
+      ],
+    });
+
+    const block = message.content[0];
+    if (block.type !== "text") throw new Error("Unexpected non-text response from Claude");
+    const data = extractJson<MasterProfile>(block.text);
+    return { success: true, data };
+  } catch (error) {
+    return {
+      success: false,
+      error: `parseProfile failed: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
 }
 
 export async function analyzeJob(

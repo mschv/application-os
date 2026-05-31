@@ -1,4 +1,4 @@
-// Profile setup page — collect user background and job search preferences
+// Profile setup — document upload flow: upload → parse → review → save
 
 // AUTH NOTE: profile_id is currently generated with
 // crypto.randomUUID() for V1 testing.
@@ -7,201 +7,292 @@
 
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@supabase/supabase-js";
+import { MasterProfile } from "@/lib/types";
 
+// V1: anon key — Supabase writes will be blocked by RLS without auth.
+// V2: route saves through an API route using the service role key.
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
-interface ExperienceEntry {
+type Screen = "upload" | "parsing" | "review" | "saving" | "error";
+
+interface EditableExperience {
+  experience_id: string;
   title: string;
   description: string;
-  skills: string;
-  metrics: string;
   date_range: string;
+  skills: string[];
+  tags: string[];
+  metrics: string[];
 }
 
-function blankEntry(): ExperienceEntry {
-  return { title: "", description: "", skills: "", metrics: "", date_range: "" };
+interface EditableProfile {
+  experiences: EditableExperience[];
+  projects: EditableExperience[];
+  skills: string[];
+  achievements: string[];
+  writing_preferences: string;
 }
 
-function splitCsv(s: string): string[] {
-  return s.split(",").map((x) => x.trim()).filter(Boolean);
+const MAX_FILE_SIZE = 5 * 1024 * 1024;
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function EntryForm({
+function getMimeType(file: File): string {
+  if (file.type === "application/pdf") return "application/pdf";
+  return "text/plain";
+}
+
+function toEditable(p: MasterProfile): EditableProfile {
+  return {
+    experiences: p.experiences.map((e) => ({ ...e })),
+    projects: p.projects.map((p) => ({ ...p })),
+    skills: [...p.skills],
+    achievements: [...p.achievements],
+    writing_preferences: p.writing_preferences,
+  };
+}
+
+function ExperienceEditor({
   entry,
-  index,
-  label,
-  onChange,
+  onUpdate,
   onRemove,
-  showRemove,
+  showDateRange,
 }: {
-  entry: ExperienceEntry;
-  index: number;
-  label: string;
-  onChange: (field: keyof ExperienceEntry, value: string) => void;
+  entry: EditableExperience;
+  onUpdate: (field: "title" | "description" | "date_range", value: string) => void;
   onRemove: () => void;
-  showRemove: boolean;
+  showDateRange: boolean;
 }) {
   return (
-    <div style={{ border: "1px solid #ccc", borderRadius: 6, padding: 16, marginBottom: 12 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
-        <strong>
-          {label} {index + 1}
-        </strong>
-        {showRemove && (
-          <button type="button" onClick={onRemove}>
-            Remove
-          </button>
-        )}
-      </div>
-      <label>
-        Title *
+    <div style={{ border: "1px solid #ddd", borderRadius: 6, padding: 14, marginBottom: 10 }}>
+      <div style={{ display: "flex", gap: 8, alignItems: "flex-start", marginBottom: 8 }}>
         <input
           value={entry.title}
-          onChange={(e) => onChange("title", e.target.value)}
-          required
-          style={{ display: "block", width: "100%", marginTop: 4, marginBottom: 10 }}
+          onChange={(e) => onUpdate("title", e.target.value)}
+          style={{
+            flex: 1,
+            fontWeight: "bold",
+            fontSize: 14,
+            border: "1px solid #ddd",
+            borderRadius: 4,
+            padding: "4px 8px",
+          }}
         />
-      </label>
-      <label>
-        Description
-        <textarea
-          value={entry.description}
-          onChange={(e) => onChange("description", e.target.value)}
-          rows={3}
-          style={{ display: "block", width: "100%", marginTop: 4, marginBottom: 10 }}
-        />
-      </label>
-      <label>
-        Skills (comma-separated)
-        <input
-          value={entry.skills}
-          onChange={(e) => onChange("skills", e.target.value)}
-          placeholder="e.g. React, TypeScript, Node.js"
-          style={{ display: "block", width: "100%", marginTop: 4, marginBottom: 10 }}
-        />
-      </label>
-      <label>
-        Metrics (comma-separated)
-        <input
-          value={entry.metrics}
-          onChange={(e) => onChange("metrics", e.target.value)}
-          placeholder="e.g. Reduced latency by 40%, Grew team from 3 to 8"
-          style={{ display: "block", width: "100%", marginTop: 4, marginBottom: 10 }}
-        />
-      </label>
-      <label>
-        Date Range
+        <button
+          type="button"
+          onClick={onRemove}
+          style={{ color: "#b00", border: "none", background: "none", cursor: "pointer", fontSize: 13, flexShrink: 0 }}
+        >
+          Remove
+        </button>
+      </div>
+      <textarea
+        value={entry.description}
+        onChange={(e) => onUpdate("description", e.target.value)}
+        rows={2}
+        style={{
+          width: "100%",
+          border: "1px solid #ddd",
+          borderRadius: 4,
+          padding: "4px 8px",
+          fontSize: 13,
+          marginBottom: showDateRange ? 8 : 0,
+        }}
+      />
+      {showDateRange && (
         <input
           value={entry.date_range}
-          onChange={(e) => onChange("date_range", e.target.value)}
-          placeholder="e.g. Jan 2022 – Present"
-          style={{ display: "block", width: "100%", marginTop: 4 }}
+          onChange={(e) => onUpdate("date_range", e.target.value)}
+          placeholder="Date range (e.g. Jan 2022 – Present)"
+          style={{ border: "1px solid #ddd", borderRadius: 4, padding: "4px 8px", fontSize: 13, width: 280 }}
         />
-      </label>
+      )}
     </div>
   );
 }
 
 export default function ProfileSetupPage() {
   const router = useRouter();
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const [experiences, setExperiences] = useState<ExperienceEntry[]>([blankEntry()]);
-  const [projects, setProjects] = useState<ExperienceEntry[]>([blankEntry()]);
-  const [skills, setSkills] = useState("");
-  const [achievements, setAchievements] = useState("");
-  const [writingPreferences, setWritingPreferences] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [screen, setScreen] = useState<Screen>("upload");
+  const [errorMessage, setErrorMessage] = useState("");
+  const [isDragging, setIsDragging] = useState(false);
+  const [fileName, setFileName] = useState("");
+  const [fileSize, setFileSize] = useState(0);
+  const [profile, setProfile] = useState<EditableProfile | null>(null);
 
-  function updateEntry(
-    setter: (fn: (prev: ExperienceEntry[]) => ExperienceEntry[]) => void,
+  async function processFile(file: File) {
+    if (file.size > MAX_FILE_SIZE) {
+      setErrorMessage(`File too large (${formatBytes(file.size)}). Maximum is 5 MB.`);
+      setScreen("error");
+      return;
+    }
+
+    const mimeType = getMimeType(file);
+    setFileName(file.name);
+    setFileSize(file.size);
+    setScreen("parsing");
+
+    try {
+      const fileContent = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const dataUrl = reader.result as string;
+          resolve(dataUrl.split(",")[1]); // strip "data:...;base64," prefix
+        };
+        reader.onerror = () => reject(new Error("Failed to read file"));
+        reader.readAsDataURL(file);
+      });
+
+      const res = await fetch("/api/parse-profile", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fileContent, mimeType }),
+      });
+
+      if (!res.ok) throw new Error(`Parse request failed: ${res.statusText}`);
+      const result = await res.json();
+      if (!result.success) throw new Error(result.error);
+
+      setProfile(toEditable(result.data));
+      setScreen("review");
+    } catch (err) {
+      setErrorMessage(err instanceof Error ? err.message : "Failed to read document.");
+      setScreen("error");
+    }
+  }
+
+  function handleFileInput(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (file) processFile(file);
+  }
+
+  function handleDrop(e: React.DragEvent<HTMLDivElement>) {
+    e.preventDefault();
+    setIsDragging(false);
+    const file = e.dataTransfer.files[0];
+    if (file) processFile(file);
+  }
+
+  function resetToUpload() {
+    setScreen("upload");
+    setErrorMessage("");
+    setFileName("");
+    setFileSize(0);
+    setProfile(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }
+
+  function updateExperience(
+    type: "experiences" | "projects",
     index: number,
-    field: keyof ExperienceEntry,
+    field: "title" | "description" | "date_range",
     value: string
   ) {
-    setter((prev) => {
-      const updated = [...prev];
-      updated[index] = { ...updated[index], [field]: value };
-      return updated;
+    setProfile((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        [type]: prev[type].map((e, i) => (i === index ? { ...e, [field]: value } : e)),
+      };
     });
   }
 
-  function removeEntry(
-    setter: (fn: (prev: ExperienceEntry[]) => ExperienceEntry[]) => void,
-    index: number
-  ) {
-    setter((prev) => prev.filter((_, i) => i !== index));
+  function removeExperience(type: "experiences" | "projects", index: number) {
+    setProfile((prev) => {
+      if (!prev) return prev;
+      return { ...prev, [type]: prev[type].filter((_, i) => i !== index) };
+    });
   }
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setLoading(true);
-    setError(null);
+  function removeSkill(index: number) {
+    setProfile((prev) => {
+      if (!prev) return prev;
+      return { ...prev, skills: prev.skills.filter((_, i) => i !== index) };
+    });
+  }
+
+  function updateAchievement(index: number, value: string) {
+    setProfile((prev) => {
+      if (!prev) return prev;
+      return { ...prev, achievements: prev.achievements.map((a, i) => (i === index ? value : a)) };
+    });
+  }
+
+  function removeAchievement(index: number) {
+    setProfile((prev) => {
+      if (!prev) return prev;
+      return { ...prev, achievements: prev.achievements.filter((_, i) => i !== index) };
+    });
+  }
+
+  async function handleSave() {
+    if (!profile) return;
+    setScreen("saving");
 
     try {
       const profileId = crypto.randomUUID();
 
-      // Save master_profile
       const { error: profileError } = await supabase.from("master_profile").insert({
         profile_id: profileId,
-        writing_preferences: writingPreferences,
+        writing_preferences: profile.writing_preferences,
       });
       if (profileError) throw new Error(`Failed to save profile: ${profileError.message}`);
 
-      // Build experience rows
-      const rows = [
-        ...experiences
+      const rows: object[] = [
+        ...profile.experiences
           .filter((e) => e.title.trim())
           .map((e) => ({
             profile_id: profileId,
+            experience_id: e.experience_id,
             title: e.title,
             description: e.description,
-            skills: splitCsv(e.skills),
-            tags: ["experience"],
-            metrics: splitCsv(e.metrics),
+            skills: e.skills,
+            tags: e.tags,
+            metrics: e.metrics,
             date_range: e.date_range,
           })),
-        ...projects
+        ...profile.projects
           .filter((p) => p.title.trim())
           .map((p) => ({
             profile_id: profileId,
+            experience_id: p.experience_id,
             title: p.title,
             description: p.description,
-            skills: splitCsv(p.skills),
-            tags: ["project"],
-            metrics: splitCsv(p.metrics),
+            skills: p.skills,
+            tags: p.tags,
+            metrics: p.metrics,
             date_range: p.date_range,
           })),
       ];
 
-      // Store global skills as a special entry (tags: ["__global_skills"])
-      const globalSkills = splitCsv(skills);
-      if (globalSkills.length > 0) {
+      if (profile.skills.length > 0) {
         rows.push({
           profile_id: profileId,
+          experience_id: crypto.randomUUID(),
           title: "__global_skills",
           description: "Global skills profile",
-          skills: globalSkills,
+          skills: profile.skills,
           tags: ["__global_skills"],
           metrics: [],
           date_range: "",
         });
       }
 
-      // Store each achievement line as an entry (tags: ["achievement"])
-      const achievementLines = achievements
-        .split("\n")
-        .map((a) => a.trim())
-        .filter(Boolean);
-      for (const achievement of achievementLines) {
+      for (const achievement of profile.achievements.filter(Boolean)) {
         rows.push({
           profile_id: profileId,
+          experience_id: crypto.randomUUID(),
           title: achievement.slice(0, 100),
           description: achievement,
           skills: [],
@@ -218,130 +309,248 @@ export default function ProfileSetupPage() {
 
       router.push(`/job-input?profile_id=${profileId}`);
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Failed to save profile. Please try again."
-      );
-    } finally {
-      setLoading(false);
+      setErrorMessage(err instanceof Error ? err.message : "Failed to save profile.");
+      setScreen("error");
     }
   }
 
+  if (screen === "upload") {
+    return (
+      <main style={{ maxWidth: 640, margin: "0 auto", padding: 24 }}>
+        <h1>Set Up Your Profile</h1>
+        <p style={{ color: "#555", marginBottom: 24 }}>
+          Upload your resume or CV. We&rsquo;ll extract your experience automatically.
+        </p>
+
+        <div
+          onDrop={handleDrop}
+          onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+          onDragLeave={() => setIsDragging(false)}
+          onClick={() => fileInputRef.current?.click()}
+          style={{
+            border: `2px dashed ${isDragging ? "#0070f3" : "#ccc"}`,
+            borderRadius: 8,
+            padding: "56px 32px",
+            textAlign: "center",
+            cursor: "pointer",
+            background: isDragging ? "#f0f7ff" : "#fafafa",
+            transition: "border-color 0.15s, background 0.15s",
+            userSelect: "none",
+          }}
+        >
+          <div style={{ fontSize: 40, marginBottom: 12 }}>📄</div>
+          <div style={{ fontWeight: "bold", fontSize: 16, marginBottom: 6 }}>
+            Drag and drop your document here
+          </div>
+          <div style={{ color: "#888", fontSize: 14, marginBottom: 16 }}>or click to browse</div>
+          <div style={{ color: "#aaa", fontSize: 12 }}>PDF, TXT, or MD &mdash; max 5 MB</div>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".pdf,.txt,.md"
+            onChange={handleFileInput}
+            style={{ display: "none" }}
+          />
+        </div>
+      </main>
+    );
+  }
+
+  if (screen === "parsing") {
+    return (
+      <main style={{ maxWidth: 640, margin: "0 auto", padding: 24 }}>
+        <h1>Set Up Your Profile</h1>
+        <div style={{ textAlign: "center", padding: "64px 0" }}>
+          <div style={{ fontSize: 36, marginBottom: 16 }}>⏳</div>
+          <div style={{ fontWeight: "bold", fontSize: 18, marginBottom: 8 }}>
+            Reading your document&hellip;
+          </div>
+          {fileName && (
+            <div style={{ color: "#888", fontSize: 14 }}>
+              {fileName} &mdash; {formatBytes(fileSize)}
+            </div>
+          )}
+        </div>
+      </main>
+    );
+  }
+
+  if (screen === "saving") {
+    return (
+      <main style={{ maxWidth: 640, margin: "0 auto", padding: 24 }}>
+        <h1>Set Up Your Profile</h1>
+        <div style={{ textAlign: "center", padding: "64px 0" }}>
+          <div style={{ fontSize: 36, marginBottom: 16 }}>💾</div>
+          <div style={{ fontWeight: "bold", fontSize: 18 }}>Saving your profile&hellip;</div>
+        </div>
+      </main>
+    );
+  }
+
+  if (screen === "error") {
+    return (
+      <main style={{ maxWidth: 640, margin: "0 auto", padding: 24 }}>
+        <h1>Set Up Your Profile</h1>
+        <div
+          style={{
+            padding: 16,
+            background: "#fff4f4",
+            border: "1px solid #c44",
+            borderRadius: 6,
+            marginBottom: 24,
+            color: "#b00",
+          }}
+        >
+          {errorMessage}
+        </div>
+        <button onClick={resetToUpload} style={{ padding: "12px 28px", fontSize: 15 }}>
+          Try Again
+        </button>
+      </main>
+    );
+  }
+
+  // Review screen
+  if (!profile) return null;
+
   return (
     <main style={{ maxWidth: 800, margin: "0 auto", padding: 24 }}>
-      <h1>Set Up Your Profile</h1>
-      <p>This profile will be used to generate all of your application materials.</p>
+      <h1>Review Extracted Profile</h1>
+      <p style={{ color: "#555", marginBottom: 28 }}>
+        Extracted from <strong>{fileName}</strong>. Edit or remove anything before saving.
+        You cannot add new items in this view.
+      </p>
 
-      <form onSubmit={handleSubmit}>
-        {/* Work Experiences */}
-        <section style={{ marginBottom: 32 }}>
-          <h2>Work Experiences</h2>
-          {experiences.map((exp, i) => (
-            <EntryForm
-              key={i}
-              entry={exp}
-              index={i}
-              label="Experience"
-              onChange={(field, value) => updateEntry(setExperiences, i, field, value)}
-              onRemove={() => removeEntry(setExperiences, i)}
-              showRemove={experiences.length > 1}
+      {/* Work Experiences */}
+      <section style={{ marginBottom: 32 }}>
+        <h2>Work Experiences ({profile.experiences.length})</h2>
+        {profile.experiences.length === 0 ? (
+          <p style={{ color: "#888", fontSize: 14 }}>No work experiences extracted.</p>
+        ) : (
+          profile.experiences.map((e, i) => (
+            <ExperienceEditor
+              key={e.experience_id}
+              entry={e}
+              onUpdate={(field, value) => updateExperience("experiences", i, field, value)}
+              onRemove={() => removeExperience("experiences", i)}
+              showDateRange
             />
-          ))}
-          <button
-            type="button"
-            onClick={() => setExperiences((prev) => [...prev, blankEntry()])}
-          >
-            + Add Work Experience
-          </button>
-        </section>
+          ))
+        )}
+      </section>
 
-        {/* Projects */}
-        <section style={{ marginBottom: 32 }}>
-          <h2>Projects</h2>
-          {projects.map((proj, i) => (
-            <EntryForm
-              key={i}
-              entry={proj}
-              index={i}
-              label="Project"
-              onChange={(field, value) => updateEntry(setProjects, i, field, value)}
-              onRemove={() => removeEntry(setProjects, i)}
-              showRemove={projects.length > 1}
+      {/* Projects */}
+      <section style={{ marginBottom: 32 }}>
+        <h2>Projects ({profile.projects.length})</h2>
+        {profile.projects.length === 0 ? (
+          <p style={{ color: "#888", fontSize: 14 }}>No projects extracted.</p>
+        ) : (
+          profile.projects.map((p, i) => (
+            <ExperienceEditor
+              key={p.experience_id}
+              entry={p}
+              onUpdate={(field, value) => updateExperience("projects", i, field, value)}
+              onRemove={() => removeExperience("projects", i)}
+              showDateRange={false}
             />
-          ))}
-          <button
-            type="button"
-            onClick={() => setProjects((prev) => [...prev, blankEntry()])}
-          >
-            + Add Project
-          </button>
-        </section>
+          ))
+        )}
+      </section>
 
-        {/* Global Skills */}
-        <section style={{ marginBottom: 32 }}>
-          <h2>Skills</h2>
-          <label>
-            List all your skills, comma-separated
-            <input
-              value={skills}
-              onChange={(e) => setSkills(e.target.value)}
-              placeholder="e.g. Python, SQL, Product Management, Figma"
-              style={{ display: "block", width: "100%", marginTop: 4 }}
-            />
-          </label>
-        </section>
-
-        {/* Achievements */}
-        <section style={{ marginBottom: 32 }}>
-          <h2>Achievements</h2>
-          <label>
-            One achievement per line
-            <textarea
-              value={achievements}
-              onChange={(e) => setAchievements(e.target.value)}
-              rows={4}
-              placeholder={"Won company hackathon 2023\nPromoted to senior engineer in 18 months"}
-              style={{ display: "block", width: "100%", marginTop: 4 }}
-            />
-          </label>
-        </section>
-
-        {/* Writing Preferences */}
-        <section style={{ marginBottom: 32 }}>
-          <h2>Writing Preferences</h2>
-          <label>
-            Describe your preferred tone and style for application materials
-            <textarea
-              value={writingPreferences}
-              onChange={(e) => setWritingPreferences(e.target.value)}
-              rows={3}
-              placeholder="e.g. Direct and concise, avoid buzzwords, emphasize technical depth"
-              style={{ display: "block", width: "100%", marginTop: 4 }}
-            />
-          </label>
-        </section>
-
-        {error && (
-          <div
-            style={{
-              color: "#b00",
-              padding: 12,
-              border: "1px solid #b00",
-              borderRadius: 4,
-              marginBottom: 16,
-            }}
-          >
-            {error}
+      {/* Skills */}
+      <section style={{ marginBottom: 32 }}>
+        <h2>Skills ({profile.skills.length})</h2>
+        {profile.skills.length === 0 ? (
+          <p style={{ color: "#888", fontSize: 14 }}>No skills extracted.</p>
+        ) : (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+            {profile.skills.map((skill, i) => (
+              <span
+                key={i}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 4,
+                  padding: "4px 10px",
+                  background: "#eef",
+                  borderRadius: 20,
+                  fontSize: 13,
+                }}
+              >
+                {skill}
+                <button
+                  type="button"
+                  onClick={() => removeSkill(i)}
+                  style={{ background: "none", border: "none", cursor: "pointer", color: "#888", fontSize: 14, padding: 0, lineHeight: 1 }}
+                >
+                  ×
+                </button>
+              </span>
+            ))}
           </div>
         )}
+      </section>
 
+      {/* Achievements */}
+      <section style={{ marginBottom: 32 }}>
+        <h2>Achievements ({profile.achievements.length})</h2>
+        {profile.achievements.length === 0 ? (
+          <p style={{ color: "#888", fontSize: 14 }}>No achievements extracted.</p>
+        ) : (
+          <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+            {profile.achievements.map((a, i) => (
+              <li key={i} style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
+                <input
+                  value={a}
+                  onChange={(e) => updateAchievement(i, e.target.value)}
+                  style={{ flex: 1, border: "1px solid #ddd", borderRadius: 4, padding: "4px 8px", fontSize: 13 }}
+                />
+                <button
+                  type="button"
+                  onClick={() => removeAchievement(i)}
+                  style={{ color: "#b00", border: "none", background: "none", cursor: "pointer", fontSize: 13, flexShrink: 0 }}
+                >
+                  Remove
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      {/* Writing Preferences */}
+      <section style={{ marginBottom: 32 }}>
+        <h2>Writing Preferences</h2>
+        <textarea
+          value={profile.writing_preferences}
+          onChange={(e) =>
+            setProfile((prev) => (prev ? { ...prev, writing_preferences: e.target.value } : prev))
+          }
+          rows={3}
+          placeholder="e.g. Direct and concise, avoid buzzwords, emphasize technical depth"
+          style={{ display: "block", width: "100%", border: "1px solid #ddd", borderRadius: 4, padding: 8, fontSize: 13 }}
+        />
+      </section>
+
+      <div style={{ display: "flex", gap: 12 }}>
         <button
-          type="submit"
-          disabled={loading}
-          style={{ padding: "12px 28px", fontSize: 16 }}
+          onClick={handleSave}
+          style={{
+            padding: "12px 28px",
+            fontSize: 15,
+            background: "#0070f3",
+            color: "#fff",
+            border: "none",
+            borderRadius: 4,
+            cursor: "pointer",
+          }}
         >
-          {loading ? "Saving…" : "Save Profile & Continue"}
+          Looks good, save profile
         </button>
-      </form>
+        <button onClick={resetToUpload} style={{ padding: "12px 28px", fontSize: 15 }}>
+          Upload different document
+        </button>
+      </div>
     </main>
   );
 }
