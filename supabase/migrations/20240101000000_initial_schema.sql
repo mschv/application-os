@@ -12,7 +12,7 @@ $$ LANGUAGE plpgsql;
 
 -- Tables
 
-CREATE TABLE master_profile (
+CREATE TABLE IF NOT EXISTS master_profile (
   profile_id        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   writing_preferences TEXT,
   created_at        TIMESTAMPTZ DEFAULT now(),
@@ -24,7 +24,7 @@ CREATE TRIGGER master_profile_updated_at
   FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
 
-CREATE TABLE experiences (
+CREATE TABLE IF NOT EXISTS experiences (
   experience_id     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   profile_id        UUID NOT NULL REFERENCES master_profile(profile_id) ON DELETE CASCADE,
   title             TEXT NOT NULL,
@@ -39,7 +39,7 @@ CREATE TABLE experiences (
 CREATE INDEX idx_experiences_profile_id ON experiences(profile_id);
 
 
-CREATE TABLE job_applications (
+CREATE TABLE IF NOT EXISTS job_applications (
   application_id        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id               UUID REFERENCES auth.users(id) ON DELETE CASCADE,
   company               TEXT NOT NULL,
@@ -52,7 +52,7 @@ CREATE TABLE job_applications (
 );
 
 
-CREATE TABLE application_versions (
+CREATE TABLE IF NOT EXISTS application_versions (
   version_id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   application_id        UUID NOT NULL REFERENCES job_applications(application_id) ON DELETE CASCADE,
   revision_count        INTEGER DEFAULT 0,
