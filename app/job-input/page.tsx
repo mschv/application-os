@@ -1,7 +1,7 @@
 // Job input page — accept job posting URL or pasted job description
 "use client";
 
-import { useState, useEffect } from "react";
+import { Suspense, useState, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@supabase/supabase-js";
 import { createInitialState, transition, AppState } from "@/lib/stateMachine";
@@ -12,7 +12,7 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
-export default function JobInputPage() {
+function JobInputContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -218,5 +218,13 @@ export default function JobInputPage() {
         </button>
       </form>
     </main>
+  );
+}
+
+export default function JobInputPage() {
+  return (
+    <Suspense fallback={<div>Loading...</div>}>
+      <JobInputContent />
+    </Suspense>
   );
 }
