@@ -1,7 +1,7 @@
 // LLM client — wrapper for Anthropic API calls used across pipeline steps
 
 import Anthropic from "@anthropic-ai/sdk";
-import { config } from "./config";
+import { getConfig } from "./config";
 import {
   JobRequirements,
   MasterProfile,
@@ -10,10 +10,11 @@ import {
   Result,
 } from "./types";
 
-const client = new Anthropic({ apiKey: config.anthropic.apiKey });
 const MODEL = "claude-sonnet-4-5";
 
 async function callClaude(prompt: string, maxTokens: number): Promise<string> {
+  const { ANTHROPIC_API_KEY } = getConfig();
+  const client = new Anthropic({ apiKey: ANTHROPIC_API_KEY });
   const message = await client.messages.create({
     model: MODEL,
     max_tokens: maxTokens,
@@ -43,6 +44,9 @@ export async function parseProfile(
   mimeType: string
 ): Promise<Result<MasterProfile>> {
   try {
+    const { ANTHROPIC_API_KEY } = getConfig();
+    const client = new Anthropic({ apiKey: ANTHROPIC_API_KEY });
+
     const isPDF = mimeType === "application/pdf";
     const source = isPDF
       ? { type: "base64" as const, media_type: "application/pdf" as const, data: fileContent }

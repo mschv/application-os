@@ -1,20 +1,18 @@
-function requireEnv(name: string): string {
-  const value = process.env[name];
-  if (!value) {
-    throw new Error(`MissingEnvironmentVariable: ${name} is required but not set`);
+export function getConfig() {
+  const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY
+  const NEXT_PUBLIC_SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const NEXT_PUBLIC_SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY
+
+  if (!ANTHROPIC_API_KEY) throw new Error('Missing ANTHROPIC_API_KEY')
+  if (!NEXT_PUBLIC_SUPABASE_URL) throw new Error('Missing NEXT_PUBLIC_SUPABASE_URL')
+  if (!NEXT_PUBLIC_SUPABASE_ANON_KEY) throw new Error('Missing NEXT_PUBLIC_SUPABASE_ANON_KEY')
+  if (!SUPABASE_SERVICE_ROLE_KEY) throw new Error('Missing SUPABASE_SERVICE_ROLE_KEY')
+
+  return {
+    ANTHROPIC_API_KEY,
+    NEXT_PUBLIC_SUPABASE_URL,
+    NEXT_PUBLIC_SUPABASE_ANON_KEY,
+    SUPABASE_SERVICE_ROLE_KEY,
   }
-  return value;
 }
-
-export const config = {
-  supabase: {
-    url: requireEnv("NEXT_PUBLIC_SUPABASE_URL"),
-    anonKey: requireEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY"),
-    serviceRoleKey: requireEnv("SUPABASE_SERVICE_ROLE_KEY"),
-  },
-  anthropic: {
-    apiKey: requireEnv("ANTHROPIC_API_KEY"),
-  },
-} as const;
-
-export type Config = typeof config;
