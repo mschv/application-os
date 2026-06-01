@@ -126,7 +126,21 @@ Produce a structured plain-text strategy document that:
 5. Lists keywords to emphasize and where
 6. Notes any requirement gaps and how to address them honestly
 
-Be specific and reference the candidate's actual experiences.`;
+Be specific and reference the candidate's actual experiences.
+
+RESUME LENGTH DECISION:
+Determine the target resume length for this application.
+Default is 1 page. Expand to 2 pages only if ALL of these are true:
+- The role is senior or lead level
+- The role explicitly requires 5 or more years of experience
+- Cutting to 1 page would require removing bullets with quantified outcomes from core PM roles
+
+State your decision at the end of the strategy output on its own line in exactly this format:
+TARGET LENGTH: 1 page
+or
+TARGET LENGTH: 2 pages
+
+Never recommend more than 2 pages.`;
 
     const data = await callClaudeWithDocument(rawDocument, instruction, SONNET, 1024);
     return { success: true, data };
@@ -156,8 +170,32 @@ Target Requirements:
 - Seniority: ${requirements.seniority_level}
 ${writingStyle ? `\nWriting style guide: ${writingStyle}` : ""}
 
+RESUME LENGTH AND SELECTION RULES:
+Read the TARGET LENGTH from the strategy provided.
+
+If TARGET LENGTH is 1 page:
+- Include the 3 most relevant roles only
+- Maximum 3 bullets per role
+- Maximum 2 projects, only if directly relevant
+- Condensed education: degree, school, GPA, one line of relevant coursework only if the role is entry-level or research-oriented
+- Compact skills section: one line per category
+- Pre-2020 roles: omit entirely for industry roles
+
+If TARGET LENGTH is 2 pages:
+- Include up to 5 roles
+- Maximum 4 bullets per role
+- Up to 3 projects if relevant
+- Full education section
+- Pre-2020 roles: one-line entry if relevant, omit if not
+
+For all lengths:
+- Every bullet must state an outcome not just a task
+- Select bullets that mirror the job posting language
+- The master document contains more than fits — select ruthlessly based on job relevance
+- Never shrink formatting to fit — cut content instead
+- Never list every job from the master document
+
 RULES:
-- Select the most relevant experiences for this specific role from the document
 - Use only facts present in the document — no invented claims or metrics
 - Incorporate required skills and keywords naturally
 - Use strong action verbs; quantify impact using only metrics from the document
