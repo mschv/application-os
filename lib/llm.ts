@@ -4,178 +4,64 @@ import Anthropic from "@anthropic-ai/sdk";
 import { getConfig } from "./config";
 import {
   JobRequirements,
-  MasterProfile,
-  RetrievedExperience,
   CritiqueResult,
   Result,
 } from "./types";
 
-const MODEL = "claude-sonnet-4-5";
+const SONNET = "claude-sonnet-4-5";
+const HAIKU = "claude-haiku-4-5-20251001";
 
-async function callClaude(prompt: string, maxTokens: number): Promise<string> {
+async function callClaude(prompt: string, model: string, maxTokens: number): Promise<string> {
   const { ANTHROPIC_API_KEY } = getConfig();
   const client = new Anthropic({ apiKey: ANTHROPIC_API_KEY });
   const message = await client.messages.create({
-    model: MODEL,
+    model,
     max_tokens: maxTokens,
     messages: [{ role: "user", content: prompt }],
   });
   const block = message.content[0];
-  if (block.type !== "text") {
-    throw new Error("Unexpected non-text response from Claude");
-  }
+  if (block.type !== "text") throw new Error("Unexpected non-text response from Claude");
+  return block.text;
+}
+
+// cache_control is a prompt-caching beta feature not in stable SDK types — cast required.
+async function callClaudeWithDocument(
+  rawDocument: string,
+  instruction: string,
+  model: string,
+  maxTokens: number
+): Promise<string> {
+  const { ANTHROPIC_API_KEY } = getConfig();
+  const client = new Anthropic({ apiKey: ANTHROPIC_API_KEY });
+  /* eslint-disable @typescript-eslint/no-explicit-any */
+  const message = await (client.messages as any).create(
+    {
+      model,
+      max_tokens: maxTokens,
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: rawDocument, cache_control: { type: "ephemeral" } },
+            { type: "text", text: instruction },
+          ],
+        },
+      ],
+    },
+    { headers: { "anthropic-beta": "prompt-caching-2024-07-31" } }
+  ) as Anthropic.Message;
+  /* eslint-enable @typescript-eslint/no-explicit-any */
+  const block = message.content[0];
+  if (block.type !== "text") throw new Error("Unexpected non-text response from Claude");
   return block.text;
 }
 
 function extractJson<T>(text: string): T {
   const blockMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/);
-  if (blockMatch) {
-    return JSON.parse(blockMatch[1].trim()) as T;
-  }
+  if (blockMatch) return JSON.parse(blockMatch[1].trim()) as T;
   const rawMatch = text.match(/\{[\s\S]*\}/);
-  if (rawMatch) {
-    return JSON.parse(rawMatch[0]) as T;
-  }
+  if (rawMatch) return JSON.parse(rawMatch[0]) as T;
   throw new Error("No JSON object found in Claude response");
-}
-
-export async function parseProfile(
-  fileContent: string,
-  mimeType: string
-): Promise<Result<MasterProfile>> {
-  try {
-    const { ANTHROPIC_API_KEY } = getConfig();
-    const client = new Anthropic({ apiKey: ANTHROPIC_API_KEY });
-
-    const isPDF = mimeType === "application/pdf";
-    const source = isPDF
-      ? { type: "base64" as const, media_type: "application/pdf" as const, data: fileContent }
-      : {
-          type: "text" as const,
-          media_type: "text/plain" as const,
-          data: Buffer.from(fileContent, "base64").toString("utf-8"),
-        };
-
-    const message = await client.messages.create({
-      model: MODEL,
-      max_tokens: 4096,
-      messages: [
-        {
-          role: "user",
-          content: [
-            { type: "document", source },
-            {
-              type: "text",
-              text: `Extract all career information from this document and return it as a JSON object with this exact structure:
-
-{
-  "profile_id": "",
-  "contact_info": {
-    "contact_id": "",
-    "profile_id": "",
-    "full_name": "Full Name",
-    "email": "email@example.com",
-    "phone": "+1 555 000 0000",
-    "location": "City, Country",
-    "linkedin_url": "https://linkedin.com/in/handle",
-    "portfolio_url": "https://example.com"
-  },
-  "experiences": [
-    {
-      "experience_id": "short-kebab-slug",
-      "title": "Job Title at Company",
-      "description": "Role description and key responsibilities",
-      "skills": ["skill1", "skill2"],
-      "tags": ["experience"],
-      "metrics": ["Reduced latency by 40%"],
-      "date_range": "Jan 2022 – Present"
-    }
-  ],
-  "projects": [
-    {
-      "experience_id": "short-kebab-slug",
-      "title": "Project Name",
-      "description": "What you built and its impact",
-      "skills": ["skill1"],
-      "tags": ["project"],
-      "metrics": [],
-      "date_range": ""
-    }
-  ],
-  "skills": ["global skill 1", "global skill 2"],
-  "achievements": ["First place hackathon 2023"],
-  "writing_preferences": "",
-  "education": [
-    {
-      "education_id": "short-kebab-slug",
-      "profile_id": "",
-      "degree": "B.S. Computer Science",
-      "institution": "University Name",
-      "graduation_date": "May 2020",
-      "gpa": "3.8"
-    }
-  ],
-  "languages": [
-    {
-      "language_id": "short-kebab-slug",
-      "profile_id": "",
-      "language": "Spanish",
-      "proficiency": "Conversational"
-    }
-  ],
-  "certifications": [
-    {
-      "certification_id": "short-kebab-slug",
-      "profile_id": "",
-      "name": "AWS Solutions Architect",
-      "issuer": "Amazon Web Services",
-      "date": "2022"
-    }
-  ],
-  "publications": [
-    {
-      "publication_id": "short-kebab-slug",
-      "profile_id": "",
-      "title": "Paper or Article Title",
-      "description": "Short description",
-      "date": "2021",
-      "url": "https://doi.org/..."
-    }
-  ],
-  "target_preferences": null
-}
-
-Rules:
-- Generate a unique kebab-case id slug for each experience, project, education, language, certification, and publication entry
-- Leave all profile_id and contact_id fields as empty string
-- All work and internship roles go in "experiences" with tags: ["experience"]
-- All personal and side projects go in "projects" with tags: ["project"]
-- All technical and professional skills go in the top-level "skills" array
-- Degrees and academic credentials go in "education" — do NOT put them in "achievements"
-- "achievements" is for awards, honors, competitions, and recognition only (not degrees)
-- Languages with proficiency levels go in "languages"
-- Professional certifications go in "certifications"
-- Research papers, articles, and publications go in "publications"
-- Always set "target_preferences" to null — the user fills this in manually
-- Omit fields that are not present in the document (leave as empty string or empty array)
-- Leave "writing_preferences" as empty string
-- Return only the JSON object with no preamble or explanation`,
-            },
-          ],
-        },
-      ],
-    });
-
-    const block = message.content[0];
-    if (block.type !== "text") throw new Error("Unexpected non-text response from Claude");
-    const data = extractJson<MasterProfile>(block.text);
-    return { success: true, data };
-  } catch (error) {
-    return {
-      success: false,
-      error: `parseProfile failed: ${error instanceof Error ? error.message : String(error)}`,
-    };
-  }
 }
 
 export async function analyzeJob(
@@ -204,7 +90,7 @@ role_themes: high-level themes (e.g. "backend engineering", "cross-functional co
 
 Return only the JSON object, no other text.`;
 
-    const text = await callClaude(prompt, 1024);
+    const text = await callClaude(prompt, HAIKU, 1024);
     const data = extractJson<JobRequirements>(text);
     return { success: true, data };
   } catch (error) {
@@ -217,38 +103,32 @@ Return only the JSON object, no other text.`;
 
 export async function generateStrategy(
   requirements: JobRequirements,
-  selectedExperiences: RetrievedExperience[]
+  rawDocument: string,
+  writingStyle: string | null
 ): Promise<Result<string>> {
   try {
-    const experienceSummary = selectedExperiences
-      .map(
-        (re) =>
-          `[${re.experience.experience_id}] ${re.experience.title} — ${re.experience.description.slice(0, 200)} (relevance: ${re.relevance_score}, matches: ${re.match_reasons.join("; ")})`
-      )
-      .join("\n");
-
-    const prompt = `Create a job application strategy document.
+    const instruction = `Based on the candidate's background document above, create a targeted application strategy for the following job.
 
 Job Requirements:
 - Required skills: ${requirements.required_skills.join(", ")}
 - Preferred skills: ${requirements.preferred_skills.join(", ")}
-- Seniority level: ${requirements.seniority_level}
-- Role themes: ${requirements.role_themes.join(", ")}
 - Keywords: ${requirements.keywords.join(", ")}
+- Seniority: ${requirements.seniority_level}
+- Role themes: ${requirements.role_themes.join(", ")}
+${writingStyle ? `\nWriting style guide: ${writingStyle}` : ""}
 
-Selected Experiences:
-${experienceSummary}
-
+Identify the most relevant experiences from the document for this specific role.
 Produce a structured plain-text strategy document that:
-1. Maps each experience ID to the specific requirements it satisfies
-2. Determines the narrative arc and which story to tell
-3. Specifies which experiences to lead with and why
-4. Lists keywords to emphasize and where
-5. Notes any requirement gaps and how to address them honestly
+1. Lists the specific experiences and projects to highlight and why
+2. Maps each to the job requirements they satisfy
+3. Determines the narrative arc — what story to tell
+4. Specifies which experiences to lead with
+5. Lists keywords to emphasize and where
+6. Notes any requirement gaps and how to address them honestly
 
-Reference experience IDs explicitly throughout.`;
+Be specific and reference the candidate's actual experiences.`;
 
-    const data = await callClaude(prompt, 1024);
+    const data = await callClaudeWithDocument(rawDocument, instruction, SONNET, 1024);
     return { success: true, data };
   } catch (error) {
     return {
@@ -260,45 +140,33 @@ Reference experience IDs explicitly throughout.`;
 
 export async function generateResume(
   strategy: string,
-  selectedExperiences: RetrievedExperience[],
-  requirements: JobRequirements
+  rawDocument: string,
+  requirements: JobRequirements,
+  writingStyle: string | null
 ): Promise<Result<string>> {
   try {
-    const experienceDetails = selectedExperiences
-      .map(
-        (re) =>
-          `Experience ID: ${re.experience.experience_id}
-Title: ${re.experience.title}
-Date Range: ${re.experience.date_range}
-Description: ${re.experience.description}
-Skills: ${re.experience.skills.join(", ")}
-Metrics: ${re.experience.metrics.join(", ")}`
-      )
-      .join("\n\n---\n\n");
-
-    const prompt = `Write an ATS-optimized resume.
+    const instruction = `Write an ATS-optimized resume for the candidate described in the document above.
 
 Strategy:
 ${strategy}
-
-Source Experiences (ground truth — use only these facts):
-${experienceDetails}
 
 Target Requirements:
 - Required skills: ${requirements.required_skills.join(", ")}
 - Keywords: ${requirements.keywords.join(", ")}
 - Seniority: ${requirements.seniority_level}
+${writingStyle ? `\nWriting style guide: ${writingStyle}` : ""}
 
 RULES:
-- Every bullet point MUST end with [exp:EXPERIENCE_ID] citing its source experience
-- Use only facts present in the source experiences — no invented claims
+- Select the most relevant experiences for this specific role from the document
+- Use only facts present in the document — no invented claims or metrics
 - Incorporate required skills and keywords naturally
-- Use strong action verbs; quantify impact using metrics from the experiences only
+- Use strong action verbs; quantify impact using only metrics from the document
 - ATS format: clean plain text, standard section headers, no tables or graphics
+- Apply the writing style guide if provided
 
 Return the complete resume as plain text.`;
 
-    const data = await callClaude(prompt, 4096);
+    const data = await callClaudeWithDocument(rawDocument, instruction, SONNET, 4096);
     return { success: true, data };
   } catch (error) {
     return {
@@ -310,33 +178,33 @@ Return the complete resume as plain text.`;
 
 export async function generateCoverLetter(
   strategy: string,
+  rawDocument: string,
   requirements: JobRequirements,
-  jobDescription: string
+  writingStyle: string | null
 ): Promise<Result<string>> {
   try {
-    const prompt = `Write a targeted cover letter.
+    const instruction = `Write a targeted cover letter for the candidate described in the document above.
 
 Strategy:
 ${strategy}
 
-Job Description:
-${jobDescription}
-
 Role Themes: ${requirements.role_themes.join(", ")}
 Seniority Level: ${requirements.seniority_level}
 Required Skills: ${requirements.required_skills.join(", ")}
+${writingStyle ? `\nWriting style guide: ${writingStyle}` : ""}
 
 Write a cover letter that:
 - Opens with genuine motivation for this specific role
 - Connects 2–3 key experiences directly to the role's core requirements
+- Uses only facts from the document — no invented claims
 - Uses the role themes to frame the narrative
 - Closes with a specific, confident call to action
 - Is 3–4 paragraphs, professional but not generic
-- Is fully consistent with the resume that would be generated from this strategy
+- Apply the writing style guide if provided
 
 Return only the cover letter body text, no subject line or metadata.`;
 
-    const data = await callClaude(prompt, 2048);
+    const data = await callClaudeWithDocument(rawDocument, instruction, SONNET, 2048);
     return { success: true, data };
   } catch (error) {
     return {
@@ -348,40 +216,32 @@ Return only the cover letter body text, no subject line or metadata.`;
 
 export async function generateApplicationResponses(
   questions: string,
-  selectedExperiences: RetrievedExperience[],
-  requirements: JobRequirements
+  rawDocument: string,
+  requirements: JobRequirements,
+  writingStyle: string | null
 ): Promise<Result<string>> {
   try {
-    const experienceSummary = selectedExperiences
-      .map(
-        (re) =>
-          `[${re.experience.experience_id}] ${re.experience.title}: ${re.experience.description} | metrics: ${re.experience.metrics.join(", ")}`
-      )
-      .join("\n\n");
-
-    const prompt = `Answer job application questions using only the provided evidence.
+    const instruction = `Answer the following job application questions for the candidate described in the document above.
 
 Application Questions:
 ${questions}
-
-Available Evidence:
-${experienceSummary}
 
 Role Context:
 - Required skills: ${requirements.required_skills.join(", ")}
 - Themes: ${requirements.role_themes.join(", ")}
 - Seniority: ${requirements.seniority_level}
+${writingStyle ? `\nWriting style guide: ${writingStyle}` : ""}
 
 RULES:
-- Answer each question using only the provided experiences — no fabricated details
-- Cite every factual claim with [exp:EXPERIENCE_ID]
-- Use concrete metrics and outcomes present in the experiences
-- Keep answers consistent with what the resume from this evidence set would say
+- Answer each question using only the candidate's experiences from the document — no fabricated details
+- Use concrete metrics and outcomes present in the document
+- Keep answers consistent with what the resume would say
+- Apply the writing style guide if provided
 - Format: question number, then a clear response paragraph
 
 Return all answers as plain text.`;
 
-    const data = await callClaude(prompt, 2048);
+    const data = await callClaudeWithDocument(rawDocument, instruction, SONNET, 2048);
     return { success: true, data };
   } catch (error) {
     return {
@@ -393,41 +253,30 @@ Return all answers as plain text.`;
 
 export async function critique(
   resume: string,
-  requirements: JobRequirements,
-  selectedExperiences: RetrievedExperience[]
+  requirements: JobRequirements
 ): Promise<Result<CritiqueResult>> {
   try {
-    const experienceFacts = selectedExperiences
-      .map(
-        (re) =>
-          `[${re.experience.experience_id}] ${re.experience.title}: ${re.experience.description} | metrics: ${re.experience.metrics.join(", ")} | skills: ${re.experience.skills.join(", ")}`
-      )
-      .join("\n");
-
-    const prompt = `You are a strict resume auditor. Audit this resume against its source evidence.
+    const prompt = `You are a strict resume auditor. Audit this resume against the job requirements.
 
 Resume:
 ${resume}
 
-Source Experiences (the only valid facts):
-${experienceFacts}
-
 Required Skills (all must appear in the resume): ${requirements.required_skills.join(", ")}
+Keywords to verify: ${requirements.keywords.join(", ")}
 
 Check for CRITICAL errors — any one causes failure:
-- unsupported_claim: a bullet makes a claim not traceable to any source experience
-- fabricated_metric: a number or metric not present in the source experiences
 - missing_required_skill: a required skill is absent from the resume entirely
+- unsupported_claim: a bullet makes an extraordinary claim without any supporting context
+- fabricated_metric: a number or percentage that appears invented (e.g. suspiciously round or uncontextualized)
 
-Check for NON-CRITICAL issues: style, weak phrasing, missing keywords, formatting.
+Check for NON-CRITICAL issues: style, weak phrasing, missing keywords, formatting problems.
 
 Return a JSON object with exactly this structure:
 {
   "critical_errors": [
     {
-      "type": "unsupported_claim",
-      "description": "specific description",
-      "experience_id": "id if applicable"
+      "type": "missing_required_skill",
+      "description": "specific description"
     }
   ],
   "non_critical_issues": ["issue1", "issue2"],
@@ -436,9 +285,8 @@ Return a JSON object with exactly this structure:
 
 Set "passed" to true only if critical_errors is an empty array. Return only the JSON object.`;
 
-    const text = await callClaude(prompt, 2048);
+    const text = await callClaude(prompt, HAIKU, 1024);
     const parsed = extractJson<CritiqueResult>(text);
-    // Enforce the invariant: passed is true iff there are no critical errors
     const data: CritiqueResult = {
       ...parsed,
       passed: parsed.critical_errors.length === 0,
@@ -455,30 +303,21 @@ Set "passed" to true only if critical_errors is an empty array. Return only the 
 export async function revise(
   resume: string,
   critiqueResult: CritiqueResult,
-  selectedExperiences: RetrievedExperience[]
+  rawDocument: string,
+  writingStyle: string | null
 ): Promise<Result<string>> {
   try {
     const criticalList = critiqueResult.critical_errors
-      .map(
-        (e) =>
-          `- [${e.type}] ${e.description}${e.experience_id ? ` (experience: ${e.experience_id})` : ""}`
-      )
+      .map((e) => `- [${e.type}] ${e.description}`)
       .join("\n");
 
     const nonCriticalList = critiqueResult.non_critical_issues
       .map((i) => `- ${i}`)
       .join("\n");
 
-    const experienceFacts = selectedExperiences
-      .map(
-        (re) =>
-          `[${re.experience.experience_id}] ${re.experience.title}: ${re.experience.description} | metrics: ${re.experience.metrics.join(", ")} | skills: ${re.experience.skills.join(", ")}`
-      )
-      .join("\n");
+    const instruction = `Revise this resume based on audit feedback. Use the candidate's background document above as the source of truth.
 
-    const prompt = `Revise this resume based on audit feedback.
-
-Original Resume:
+Resume to revise:
 ${resume}
 
 Critical Errors to Fix (required):
@@ -486,20 +325,18 @@ ${criticalList || "None"}
 
 Non-Critical Issues to Address (recommended):
 ${nonCriticalList || "None"}
-
-Source Experiences (only use facts from here):
-${experienceFacts}
+${writingStyle ? `\nWriting style guide: ${writingStyle}` : ""}
 
 RULES:
 - Fix every critical error listed above
 - Address non-critical issues where possible
-- Every bullet MUST retain or add [exp:EXPERIENCE_ID] citation
-- Do NOT introduce any claim not supported by a source experience
+- Use only facts from the document — do not introduce any invented claims
 - Preserve the overall structure and length of the resume
+- Apply the writing style guide if provided
 
 Return the complete revised resume as plain text.`;
 
-    const data = await callClaude(prompt, 4096);
+    const data = await callClaudeWithDocument(rawDocument, instruction, SONNET, 4096);
     return { success: true, data };
   } catch (error) {
     return {

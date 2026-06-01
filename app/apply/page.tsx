@@ -1,23 +1,15 @@
-// Job input page — accept job posting URL or pasted job description
+// Job input page — accept job description and application questions
 "use client";
 
-import { Suspense, useState, useEffect } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
-import { createClient } from "@supabase/supabase-js";
+import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { createInitialState, transition, AppState } from "@/lib/stateMachine";
-import { Experience } from "@/lib/types";
+import { getProfileId } from "@/lib/profile";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
-
-function ApplyContent() {
+export default function ApplyPage() {
   const router = useRouter();
-  const searchParams = useSearchParams();
 
   const [profileId, setProfileId] = useState<string | null>(null);
-  const [experiences, setExperiences] = useState<Experience[]>([]);
   const [profileLoading, setProfileLoading] = useState(true);
 
   const [jobDescription, setJobDescription] = useState("");
@@ -27,56 +19,15 @@ function ApplyContent() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Read profile_id from Supabase on mount
   useEffect(() => {
-    async function loadProfile() {
-      const urlProfileId = searchParams.get("profile_id");
-      if (!urlProfileId) {
-        setError("No profile found. Please complete profile setup first.");
-        setProfileLoading(false);
-        return;
-      }
-
-      const { data: profile, error: profileError } = await supabase
-        .from("master_profile")
-        .select("profile_id")
-        .eq("profile_id", urlProfileId)
-        .single();
-
-      if (profileError || !profile) {
-        setError("Profile not found. Please complete profile setup first.");
-        setProfileLoading(false);
-        return;
-      }
-
-      const { data: expRows, error: expError } = await supabase
-        .from("experiences")
-        .select("*")
-        .eq("profile_id", urlProfileId);
-
-      if (expError) {
-        setError(`Failed to load profile experiences: ${expError.message}`);
-        setProfileLoading(false);
-        return;
-      }
-
-      setProfileId(profile.profile_id);
-      setExperiences(
-        (expRows ?? []).map((row) => ({
-          experience_id: row.experience_id,
-          title: row.title,
-          description: row.description,
-          skills: row.skills ?? [],
-          tags: row.tags ?? [],
-          metrics: row.metrics ?? [],
-          date_range: row.date_range ?? "",
-        }))
-      );
-      setProfileLoading(false);
+    const id = getProfileId();
+    if (!id) {
+      router.replace("/setup");
+      return;
     }
-
-    loadProfile();
-  }, [searchParams]);
+    setProfileId(id);
+    setProfileLoading(false);
+  }, [router]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -89,24 +40,20 @@ function ApplyContent() {
     setError(null);
 
     try {
-      // Build state at JOB_INPUT via createInitialState + START_JOB_INPUT
       const initialState = createInitialState();
       const toJobInput = transition(initialState, {
         type: "START_JOB_INPUT",
         profile_id: profileId,
       });
-      if (!toJobInput.success) {
-        throw new Error(toJobInput.error);
-      }
+      if (!toJobInput.success) throw new Error(toJobInput.error);
 
-      // Call POST /api/analyze-job
       const response = await fetch("/api/analyze-job", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           state: toJobInput.data,
           jobDescription,
-          experiences,
+          profileId,
         }),
       });
 
@@ -115,25 +62,17 @@ function ApplyContent() {
       }
 
       const result = await response.json();
-      if (!result.success) {
-        throw new Error(result.error);
-      }
+      if (!result.success) throw new Error(result.error);
 
-      // PATCH: analyze-job route doesn't forward application_questions
-      // so we reattach it here before storing state.
-      // Fix in V2: add application_questions to the route body.
       const updatedState: AppState = {
         ...result.data,
         application_questions: applicationQuestions.trim() || null,
       };
 
-      // Store in sessionStorage and proceed
       sessionStorage.setItem("appState", JSON.stringify(updatedState));
-      // V2: Add cover_letter_enabled field to AppState
-      // to avoid split sessionStorage state.
       sessionStorage.setItem("generateCoverLetter", JSON.stringify(generateCoverLetter));
 
-      router.push("/review-experience");
+      router.push("/review-output");
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Analysis failed. Please try again."
@@ -218,13 +157,5 @@ function ApplyContent() {
         </button>
       </form>
     </main>
-  );
-}
-
-export default function ApplyPage() {
-  return (
-    <Suspense fallback={<div>Loading...</div>}>
-      <ApplyContent />
-    </Suspense>
   );
 }

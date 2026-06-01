@@ -18,19 +18,16 @@ export async function POST(request: NextRequest): Promise<NextResponse<Result<Ap
       });
     }
 
-    const selectedExperiences = state.retrieved_experiences.filter((e) => e.selected);
-
-    // 2. Call llm.critique()
+    // 2. Call llm.critique() — Haiku, no document needed
     const critiqueResult = await critique(
       state.generated_resume!,
-      state.extracted_requirements!,
-      selectedExperiences
+      state.extracted_requirements!
     );
     if (!critiqueResult.success) {
       return NextResponse.json({ success: false, error: critiqueResult.error });
     }
 
-    // 3 & 4. Transition based on result — COMPLETE_CRITIQUE routes to FINAL_OUTPUT or REVISION
+    // 3. Transition — COMPLETE_CRITIQUE routes to FINAL_OUTPUT or REVISION
     const afterCritique = transition(state, {
       type: "COMPLETE_CRITIQUE",
       critique_result: critiqueResult.data,

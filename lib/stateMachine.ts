@@ -2,7 +2,6 @@
 
 import {
   JobRequirements,
-  RetrievedExperience,
   CritiqueResult,
   Result,
 } from "./types";
@@ -11,8 +10,6 @@ export enum WorkflowStep {
   PROFILE_SETUP = "PROFILE_SETUP",
   JOB_INPUT = "JOB_INPUT",
   JOB_ANALYSIS = "JOB_ANALYSIS",
-  RETRIEVAL = "RETRIEVAL",
-  EVIDENCE_REVIEW = "EVIDENCE_REVIEW",
   STRATEGY = "STRATEGY",
   GENERATION = "GENERATION",
   CRITIQUE = "CRITIQUE",
@@ -24,11 +21,11 @@ export enum WorkflowStep {
 export interface AppState {
   current_step: WorkflowStep;
   profile_id: string | null;
+  raw_document: string | null;
+  writing_style: string | null;
   job_description: string | null;
   application_questions: string | null;
   extracted_requirements: JobRequirements | null;
-  retrieved_experiences: RetrievedExperience[];
-  user_modified_evidence: boolean;
   strategy: string | null;
   generated_resume: string | null;
   generated_cover_letter: string | null;
@@ -43,13 +40,26 @@ export interface AppState {
 export type Action =
   | { type: "START_JOB_INPUT"; profile_id: string }
   | { type: "SUBMIT_JOB"; job_description: string; application_questions?: string }
-  | { type: "COMPLETE_ANALYSIS"; extracted_requirements: JobRequirements }
-  | { type: "COMPLETE_RETRIEVAL"; retrieved_experiences: RetrievedExperience[] }
-  | { type: "CONFIRM_EVIDENCE" }
+  | {
+      type: "COMPLETE_ANALYSIS";
+      extracted_requirements: JobRequirements;
+      raw_document: string;
+      writing_style: string | null;
+    }
   | { type: "SET_STRATEGY"; strategy: string }
-  | { type: "COMPLETE_GENERATION"; generated_resume: string; generated_cover_letter?: string; application_responses?: string }
+  | {
+      type: "COMPLETE_GENERATION";
+      generated_resume: string;
+      generated_cover_letter?: string;
+      application_responses?: string;
+    }
   | { type: "COMPLETE_CRITIQUE"; critique_result: CritiqueResult }
-  | { type: "COMPLETE_REVISION"; generated_resume: string; generated_cover_letter?: string; application_responses?: string }
+  | {
+      type: "COMPLETE_REVISION";
+      generated_resume: string;
+      generated_cover_letter?: string;
+      application_responses?: string;
+    }
   | { type: "ACCEPT_OUTPUT"; final_resume: string; final_cover_letter?: string }
   | { type: "SET_ERROR"; error: string };
 
@@ -59,8 +69,6 @@ const REQUIRED_STEP: Partial<Record<Action["type"], WorkflowStep>> = {
   START_JOB_INPUT: WorkflowStep.PROFILE_SETUP,
   SUBMIT_JOB: WorkflowStep.JOB_INPUT,
   COMPLETE_ANALYSIS: WorkflowStep.JOB_ANALYSIS,
-  COMPLETE_RETRIEVAL: WorkflowStep.RETRIEVAL,
-  CONFIRM_EVIDENCE: WorkflowStep.EVIDENCE_REVIEW,
   SET_STRATEGY: WorkflowStep.STRATEGY,
   COMPLETE_GENERATION: WorkflowStep.GENERATION,
   COMPLETE_CRITIQUE: WorkflowStep.CRITIQUE,
@@ -72,11 +80,11 @@ export function createInitialState(): AppState {
   return {
     current_step: WorkflowStep.PROFILE_SETUP,
     profile_id: null,
+    raw_document: null,
+    writing_style: null,
     job_description: null,
     application_questions: null,
     extracted_requirements: null,
-    retrieved_experiences: [],
-    user_modified_evidence: false,
     strategy: null,
     generated_resume: null,
     generated_cover_letter: null,
@@ -127,27 +135,12 @@ export function transition(state: AppState, action: Action): Result<AppState> {
         success: true,
         data: {
           ...state,
-          current_step: WorkflowStep.RETRIEVAL,
+          current_step: WorkflowStep.STRATEGY,
           extracted_requirements: action.extracted_requirements,
+          raw_document: action.raw_document,
+          writing_style: action.writing_style,
           error: null,
         },
-      };
-
-    case "COMPLETE_RETRIEVAL":
-      return {
-        success: true,
-        data: {
-          ...state,
-          current_step: WorkflowStep.EVIDENCE_REVIEW,
-          retrieved_experiences: action.retrieved_experiences,
-          error: null,
-        },
-      };
-
-    case "CONFIRM_EVIDENCE":
-      return {
-        success: true,
-        data: { ...state, current_step: WorkflowStep.STRATEGY, error: null },
       };
 
     case "SET_STRATEGY":
@@ -175,7 +168,6 @@ export function transition(state: AppState, action: Action): Result<AppState> {
       };
 
     case "COMPLETE_CRITIQUE": {
-      // If critique passed, or no revisions remain, proceed to final output.
       const nextStep =
         action.critique_result.passed || !canRevise(state)
           ? WorkflowStep.FINAL_OUTPUT
@@ -226,12 +218,11 @@ export function transition(state: AppState, action: Action): Result<AppState> {
   }
 }
 
-// Resets all state from STRATEGY onward when the user modifies retrieved evidence.
+// Resets all state from STRATEGY onward (e.g. when user regenerates from review-output).
 export function invalidateFromEvidence(state: AppState): AppState {
   return {
     ...state,
-    current_step: WorkflowStep.EVIDENCE_REVIEW,
-    user_modified_evidence: true,
+    current_step: WorkflowStep.STRATEGY,
     strategy: null,
     generated_resume: null,
     generated_cover_letter: null,
@@ -246,10 +237,4 @@ export function invalidateFromEvidence(state: AppState): AppState {
 
 export function canRevise(state: AppState): boolean {
   return state.revision_count < 2;
-}
-
-export function canProceedToGeneration(state: AppState): boolean {
-  if (state.current_step !== WorkflowStep.EVIDENCE_REVIEW) return false;
-  if (state.retrieved_experiences.length === 0) return false;
-  return true;
 }

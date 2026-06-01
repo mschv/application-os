@@ -1,12 +1,7 @@
-// API route — generate initial application materials from job analysis and evidence
-
-// V1: This route collapses STRATEGY + GENERATION + CRITIQUE
-// into a single call for simplicity.
-// V2: Split into /api/strategy and /api/generate separately
-// to allow user review of strategy before generation.
+// API route — generate initial application materials from strategy and raw profile document
 
 import { NextRequest, NextResponse } from "next/server";
-import { transition, canProceedToGeneration, AppState } from "@/lib/stateMachine";
+import { transition, AppState, WorkflowStep } from "@/lib/stateMachine";
 import {
   generateStrategy,
   generateResume,
@@ -23,62 +18,67 @@ export async function POST(request: NextRequest): Promise<NextResponse<Result<Ap
     };
     const { state, generateCoverLetter: wantsCoverLetter = true } = body;
 
-    // 1. Validate canProceedToGeneration
-    if (!canProceedToGeneration(state)) {
+    // 1. Validate that state is at STRATEGY
+    if (state.current_step !== WorkflowStep.STRATEGY) {
       return NextResponse.json({
         success: false,
-        error: "Cannot proceed to generation: must be at EVIDENCE_REVIEW with at least one selected experience",
+        error: `Cannot generate: expected STRATEGY step, got ${state.current_step}`,
       });
     }
 
-    const selectedExperiences = state.retrieved_experiences.filter((e) => e.selected);
+    const rawDocument = state.raw_document!;
+    const writingStyle = state.writing_style;
     const requirements = state.extracted_requirements!;
 
-    // 2. Generate strategy
-    const strategyResult = await generateStrategy(requirements, selectedExperiences);
+    // 2. Generate strategy (Sonnet, cached document)
+    const strategyResult = await generateStrategy(requirements, rawDocument, writingStyle);
     if (!strategyResult.success) {
       return NextResponse.json({ success: false, error: strategyResult.error });
     }
 
-    // 3. Generate resume
-    const resumeResult = await generateResume(strategyResult.data, selectedExperiences, requirements);
+    // 3. Generate resume (Sonnet, cached document)
+    const resumeResult = await generateResume(
+      strategyResult.data,
+      rawDocument,
+      requirements,
+      writingStyle
+    );
     if (!resumeResult.success) {
       return NextResponse.json({ success: false, error: resumeResult.error });
     }
 
-    // 4. Generate cover letter if enabled
+    // 4. Optional cover letter (Sonnet, cached document)
     let coverLetterText: string | undefined;
     if (wantsCoverLetter) {
-      const coverLetterResult = await llmGenerateCoverLetter(
+      const clResult = await llmGenerateCoverLetter(
         strategyResult.data,
+        rawDocument,
         requirements,
-        state.job_description!
+        writingStyle
       );
-      if (!coverLetterResult.success) {
-        return NextResponse.json({ success: false, error: coverLetterResult.error });
+      if (!clResult.success) {
+        return NextResponse.json({ success: false, error: clResult.error });
       }
-      coverLetterText = coverLetterResult.data;
+      coverLetterText = clResult.data;
     }
 
-    // 5. Generate application responses if questions exist
+    // 5. Optional application responses (Sonnet, cached document)
     let responsesText: string | undefined;
     if (state.application_questions) {
-      const responsesResult = await generateApplicationResponses(
+      const respResult = await generateApplicationResponses(
         state.application_questions,
-        selectedExperiences,
-        requirements
+        rawDocument,
+        requirements,
+        writingStyle
       );
-      if (!responsesResult.success) {
-        return NextResponse.json({ success: false, error: responsesResult.error });
+      if (!respResult.success) {
+        return NextResponse.json({ success: false, error: respResult.error });
       }
-      responsesText = responsesResult.data;
+      responsesText = respResult.data;
     }
 
-    // 6. Transition EVIDENCE_REVIEW → STRATEGY → GENERATION → CRITIQUE
-    const afterConfirm = transition(state, { type: "CONFIRM_EVIDENCE" });
-    if (!afterConfirm.success) return NextResponse.json(afterConfirm);
-
-    const afterStrategy = transition(afterConfirm.data, {
+    // 6. Transition STRATEGY → GENERATION → CRITIQUE
+    const afterStrategy = transition(state, {
       type: "SET_STRATEGY",
       strategy: strategyResult.data,
     });

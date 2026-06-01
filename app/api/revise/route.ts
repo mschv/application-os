@@ -18,13 +18,15 @@ export async function POST(request: NextRequest): Promise<NextResponse<Result<Ap
       });
     }
 
-    const selectedExperiences = state.retrieved_experiences.filter((e) => e.selected);
+    const rawDocument = state.raw_document!;
+    const writingStyle = state.writing_style;
 
-    // 2. Call llm.revise()
+    // 2. Call llm.revise() — Sonnet with cached document
     const reviseResult = await revise(
       state.generated_resume!,
       state.critique_result!,
-      selectedExperiences
+      rawDocument,
+      writingStyle
     );
     if (!reviseResult.success) {
       return NextResponse.json({ success: false, error: reviseResult.error });
@@ -39,18 +41,16 @@ export async function POST(request: NextRequest): Promise<NextResponse<Result<Ap
     });
     if (!afterRevision.success) return NextResponse.json(afterRevision);
 
-    // 4. Call llm.critique() on the revised resume
+    // 4. Auto-critique the revised resume — Haiku
     const critiqueResult = await critique(
       reviseResult.data,
-      afterRevision.data.extracted_requirements!,
-      selectedExperiences
+      afterRevision.data.extracted_requirements!
     );
-
-    // 5. Let state machine route based on critique result and canRevise
     if (!critiqueResult.success) {
       return NextResponse.json({ success: false, error: critiqueResult.error });
     }
 
+    // 5. Let state machine route based on critique result and canRevise
     const afterCritique = transition(afterRevision.data, {
       type: "COMPLETE_CRITIQUE",
       critique_result: critiqueResult.data,

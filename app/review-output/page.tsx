@@ -101,7 +101,7 @@ export default function ReviewOutputPage() {
     setRegenerateLoading(true);
     setError(null);
     try {
-      // Reset to EVIDENCE_REVIEW via invalidateFromEvidence, then re-generate
+      // Reset to STRATEGY via invalidateFromEvidence, then re-generate
       const resetState = invalidateFromEvidence(appState);
 
       const genRes = await fetch("/api/generate", {
@@ -149,7 +149,6 @@ export default function ReviewOutputPage() {
         role: roleThemes[0] ?? "Unknown",
         job_description: appState.job_description ?? "",
         extracted_requirements: appState.extracted_requirements,
-        retrieved_experiences: appState.retrieved_experiences,
         status: "applied",
       });
       if (appError) throw new Error(`Failed to save application: ${appError.message}`);
