@@ -92,8 +92,10 @@ export default function ReviewOutputPage() {
   const [regenerateLoading, setRegenerateLoading] = useState(false);
   const [approveLoading, setApproveLoading] = useState(false);
   const [downloadLoading, setDownloadLoading] = useState(false);
+  const [clDownloadLoading, setClDownloadLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [downloadError, setDownloadError] = useState<string | null>(null);
+  const [clDownloadError, setClDownloadError] = useState<string | null>(null);
 
   // Load AppState from sessionStorage; auto-run critique if arriving at CRITIQUE step
   useEffect(() => {
@@ -183,6 +185,41 @@ export default function ReviewOutputPage() {
       setDownloadError(err instanceof Error ? err.message : "Download failed.");
     } finally {
       setDownloadLoading(false);
+    }
+  }
+
+  async function handleDownloadCoverLetter() {
+    if (!appState) return;
+    setClDownloadLoading(true);
+    setClDownloadError(null);
+    try {
+      const coverLetterText =
+        editedCoverLetter ??
+        appState.final_cover_letter ??
+        appState.generated_cover_letter ??
+        "";
+      const roleThemes = appState.extracted_requirements?.role_themes ?? [];
+      const res = await fetch("/api/download-cover-letter", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          coverLetterText,
+          company: "",
+          role: roleThemes[0] ?? "",
+        }),
+      });
+      if (!res.ok) throw new Error(`Download failed: ${res.statusText}`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "cover-letter.docx";
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setClDownloadError(err instanceof Error ? err.message : "Download failed.");
+    } finally {
+      setClDownloadLoading(false);
     }
   }
 
@@ -534,6 +571,33 @@ export default function ReviewOutputPage() {
               </pre>
             )}
           </section>
+
+          {/* Download button — Cover Letter tab only */}
+          {displayTab === "cover_letter" && editingTab !== "cover_letter" && (
+            <div style={{ marginBottom: 28 }}>
+              <button
+                type="button"
+                onClick={handleDownloadCoverLetter}
+                disabled={clDownloadLoading || isLoading}
+                style={{
+                  fontSize: 13,
+                  padding: "6px 14px",
+                  background: "none",
+                  border: "1px solid #ccc",
+                  borderRadius: 4,
+                  cursor: clDownloadLoading || isLoading ? "not-allowed" : "pointer",
+                  color: clDownloadLoading || isLoading ? "#aaa" : "#333",
+                }}
+              >
+                {clDownloadLoading ? "Generating…" : "Download Cover Letter (.docx)"}
+              </button>
+              {clDownloadError && (
+                <div style={{ color: "#b00", fontSize: 13, marginTop: 6 }}>
+                  {clDownloadError}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Download button — Resume tab only */}
           {displayTab === "resume" && editingTab !== "resume" && (
