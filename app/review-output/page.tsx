@@ -62,6 +62,15 @@ function AutoResizeTextarea({
   );
 }
 
+const DOWNLOAD_CONTACT = {
+  candidateName: "Maria Susana Chang Vegas",
+  email: "marisu.chang@gmail.com",
+  phone: "+1 (607) 379-3864",
+  location: "Ithaca, NY",
+  linkedin: "linkedin.com/in/mariasusanachangv",
+  portfolio: "mschv.github.io/portfolio",
+};
+
 export default function ReviewOutputPage() {
   const router = useRouter();
 
@@ -82,7 +91,9 @@ export default function ReviewOutputPage() {
   const [reviseLoading, setReviseLoading] = useState(false);
   const [regenerateLoading, setRegenerateLoading] = useState(false);
   const [approveLoading, setApproveLoading] = useState(false);
+  const [downloadLoading, setDownloadLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
 
   // Load AppState from sessionStorage; auto-run critique if arriving at CRITIQUE step
   useEffect(() => {
@@ -148,11 +159,37 @@ export default function ReviewOutputPage() {
     setEditingTab(null);
   }
 
+  async function handleDownload() {
+    if (!appState) return;
+    setDownloadLoading(true);
+    setDownloadError(null);
+    try {
+      const resumeText =
+        editedResume ?? appState.final_resume ?? appState.generated_resume ?? "";
+      const res = await fetch("/api/download-resume", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ resumeText, ...DOWNLOAD_CONTACT }),
+      });
+      if (!res.ok) throw new Error(`Download failed: ${res.statusText}`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "resume.docx";
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setDownloadError(err instanceof Error ? err.message : "Download failed.");
+    } finally {
+      setDownloadLoading(false);
+    }
+  }
+
   async function handleRevise() {
     if (!appState) return;
     setReviseLoading(true);
     setError(null);
-    // Send edited resume if user has made edits, otherwise use appState value
     const resumeToRevise = editedResume ?? appState.generated_resume;
     const stateForRevise: AppState = resumeToRevise
       ? { ...appState, generated_resume: resumeToRevise }
@@ -167,7 +204,6 @@ export default function ReviewOutputPage() {
       const result = await res.json();
       if (!result.success) throw new Error(result.error);
       setAppState(result.data);
-      // Clear edited state so new revision content is shown fresh
       setEditedResume(null);
       setEditedCoverLetter(null);
       setEditedResponses(null);
@@ -225,11 +261,13 @@ export default function ReviewOutputPage() {
     setError(null);
     try {
       const applicationId = crypto.randomUUID();
-      // Use edited content if present, otherwise fall back to appState values
       const finalResume =
         editedResume ?? appState.final_resume ?? appState.generated_resume ?? "";
       const finalCoverLetter =
-        editedCoverLetter ?? appState.final_cover_letter ?? appState.generated_cover_letter ?? null;
+        editedCoverLetter ??
+        appState.final_cover_letter ??
+        appState.generated_cover_letter ??
+        null;
       const roleThemes = appState.extracted_requirements?.role_themes ?? [];
 
       // Insert into job_applications
@@ -376,7 +414,6 @@ export default function ReviewOutputPage() {
               alignItems: "flex-end",
               borderBottom: "2px solid #ddd",
               marginBottom: 16,
-              gap: 0,
             }}
           >
             {availableTabs.map((tab) => (
@@ -418,7 +455,7 @@ export default function ReviewOutputPage() {
               </button>
             ))}
 
-            {/* Edit / Save Edits toggle — aligned to right of tab bar */}
+            {/* Edit / Save Edits toggle — right side of tab bar */}
             <div style={{ marginLeft: "auto", marginBottom: 2 }}>
               {editingTab === displayTab ? (
                 <span style={{ display: "flex", gap: 8 }}>
@@ -474,12 +511,9 @@ export default function ReviewOutputPage() {
             </div>
           </div>
 
-          <section style={{ marginBottom: 28 }}>
+          <section style={{ marginBottom: 16 }}>
             {editingTab === displayTab ? (
-              <AutoResizeTextarea
-                value={draftContent}
-                onChange={setDraftContent}
-              />
+              <AutoResizeTextarea value={draftContent} onChange={setDraftContent} />
             ) : (
               <pre
                 style={{
@@ -500,6 +534,33 @@ export default function ReviewOutputPage() {
               </pre>
             )}
           </section>
+
+          {/* Download button — Resume tab only */}
+          {displayTab === "resume" && editingTab !== "resume" && (
+            <div style={{ marginBottom: 28 }}>
+              <button
+                type="button"
+                onClick={handleDownload}
+                disabled={downloadLoading || isLoading}
+                style={{
+                  fontSize: 13,
+                  padding: "6px 14px",
+                  background: "none",
+                  border: "1px solid #ccc",
+                  borderRadius: 4,
+                  cursor: downloadLoading || isLoading ? "not-allowed" : "pointer",
+                  color: downloadLoading || isLoading ? "#aaa" : "#333",
+                }}
+              >
+                {downloadLoading ? "Generating…" : "Download Resume (.docx)"}
+              </button>
+              {downloadError && (
+                <div style={{ color: "#b00", fontSize: 13, marginTop: 6 }}>
+                  {downloadError}
+                </div>
+              )}
+            </div>
+          )}
         </>
       )}
 
