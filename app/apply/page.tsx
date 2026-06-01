@@ -17,6 +17,7 @@ export default function ApplyPage() {
   const [generateCoverLetter, setGenerateCoverLetter] = useState(true);
 
   const [loading, setLoading] = useState(false);
+  const [loadingMessage, setLoadingMessage] = useState("Analyzing job…");
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -37,6 +38,7 @@ export default function ApplyPage() {
     }
 
     setLoading(true);
+    setLoadingMessage("Analyzing job…");
     setError(null);
 
     try {
@@ -47,7 +49,7 @@ export default function ApplyPage() {
       });
       if (!toJobInput.success) throw new Error(toJobInput.error);
 
-      const response = await fetch("/api/analyze-job", {
+      const analyzeResponse = await fetch("/api/analyze-job", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -57,19 +59,34 @@ export default function ApplyPage() {
         }),
       });
 
-      if (!response.ok) {
-        throw new Error(`Request failed: ${response.status} ${response.statusText}`);
+      if (!analyzeResponse.ok) {
+        throw new Error(`Request failed: ${analyzeResponse.status} ${analyzeResponse.statusText}`);
       }
 
-      const result = await response.json();
-      if (!result.success) throw new Error(result.error);
+      const analyzeResult = await analyzeResponse.json();
+      if (!analyzeResult.success) throw new Error(analyzeResult.error);
 
-      const updatedState: AppState = {
-        ...result.data,
+      const strategyState: AppState = {
+        ...analyzeResult.data,
         application_questions: applicationQuestions.trim() || null,
       };
 
-      sessionStorage.setItem("appState", JSON.stringify(updatedState));
+      setLoadingMessage("Generating your application…");
+
+      const generateResponse = await fetch("/api/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ state: strategyState, generateCoverLetter }),
+      });
+
+      if (!generateResponse.ok) {
+        throw new Error(`Generate failed: ${generateResponse.status} ${generateResponse.statusText}`);
+      }
+
+      const generateResult = await generateResponse.json();
+      if (!generateResult.success) throw new Error(generateResult.error);
+
+      sessionStorage.setItem("appState", JSON.stringify(generateResult.data));
       sessionStorage.setItem("generateCoverLetter", JSON.stringify(generateCoverLetter));
 
       router.push("/review-output");
@@ -153,7 +170,7 @@ export default function ApplyPage() {
           disabled={loading || !profileId}
           style={{ padding: "12px 28px", fontSize: 16 }}
         >
-          {loading ? "Analyzing job…" : "Analyze & Continue"}
+          {loading ? loadingMessage : "Analyze & Continue"}
         </button>
       </form>
     </main>
