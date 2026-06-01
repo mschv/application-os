@@ -1,7 +1,7 @@
 // Output review page — display generated application materials for user review and export
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@supabase/supabase-js";
 import { invalidateFromEvidence, canRevise, AppState, WorkflowStep } from "@/lib/stateMachine";
@@ -25,12 +25,58 @@ function tabContent(state: AppState, tab: Tab): string | null | undefined {
   return state.application_responses;
 }
 
+function AutoResizeTextarea({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const ref = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    if (ref.current) {
+      ref.current.style.height = "auto";
+      ref.current.style.height = `${Math.max(400, ref.current.scrollHeight)}px`;
+    }
+  }, [value]);
+
+  return (
+    <textarea
+      ref={ref}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      style={{
+        width: "100%",
+        minHeight: 400,
+        fontFamily: "monospace",
+        fontSize: 13,
+        lineHeight: 1.7,
+        padding: 16,
+        border: "1px solid #0070f3",
+        borderRadius: 4,
+        resize: "vertical",
+        boxSizing: "border-box",
+      }}
+    />
+  );
+}
+
 export default function ReviewOutputPage() {
   const router = useRouter();
 
   const [appState, setAppState] = useState<AppState | null>(null);
   const [generateCoverLetter, setGenerateCoverLetter] = useState(true);
   const [activeTab, setActiveTab] = useState<Tab>("resume");
+
+  // Edited content per tab — null means unedited (use appState value)
+  const [editedResume, setEditedResume] = useState<string | null>(null);
+  const [editedCoverLetter, setEditedCoverLetter] = useState<string | null>(null);
+  const [editedResponses, setEditedResponses] = useState<string | null>(null);
+
+  // Draft state while editing (before Save Edits is clicked)
+  const [draftContent, setDraftContent] = useState<string>("");
+  const [editingTab, setEditingTab] = useState<Tab | null>(null);
 
   const [critiqueLoading, setCritiqueLoading] = useState(false);
   const [reviseLoading, setReviseLoading] = useState(false);
@@ -74,20 +120,58 @@ export default function ReviewOutputPage() {
     load();
   }, []);
 
+  function getDisplayContent(tab: Tab): string {
+    if (tab === "resume") return editedResume ?? tabContent(appState!, tab) ?? "";
+    if (tab === "cover_letter") return editedCoverLetter ?? tabContent(appState!, tab) ?? "";
+    return editedResponses ?? tabContent(appState!, tab) ?? "";
+  }
+
+  function isEdited(tab: Tab): boolean {
+    if (tab === "resume") return editedResume !== null;
+    if (tab === "cover_letter") return editedCoverLetter !== null;
+    return editedResponses !== null;
+  }
+
+  function handleEditClick(tab: Tab) {
+    setDraftContent(getDisplayContent(tab));
+    setEditingTab(tab);
+  }
+
+  function handleSaveEdits(tab: Tab) {
+    if (tab === "resume") setEditedResume(draftContent);
+    else if (tab === "cover_letter") setEditedCoverLetter(draftContent);
+    else setEditedResponses(draftContent);
+    setEditingTab(null);
+  }
+
+  function handleCancelEdit() {
+    setEditingTab(null);
+  }
+
   async function handleRevise() {
     if (!appState) return;
     setReviseLoading(true);
     setError(null);
+    // Send edited resume if user has made edits, otherwise use appState value
+    const resumeToRevise = editedResume ?? appState.generated_resume;
+    const stateForRevise: AppState = resumeToRevise
+      ? { ...appState, generated_resume: resumeToRevise }
+      : appState;
     try {
       const res = await fetch("/api/revise", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ state: appState }),
+        body: JSON.stringify({ state: stateForRevise }),
       });
       if (!res.ok) throw new Error(`Request failed: ${res.statusText}`);
       const result = await res.json();
       if (!result.success) throw new Error(result.error);
       setAppState(result.data);
+      // Clear edited state so new revision content is shown fresh
+      setEditedResume(null);
+      setEditedCoverLetter(null);
+      setEditedResponses(null);
+      setEditingTab(null);
       sessionStorage.setItem("appState", JSON.stringify(result.data));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Revision failed. Please try again.");
@@ -123,6 +207,10 @@ export default function ReviewOutputPage() {
       const finalState = critResult?.success ? critResult.data : genResult.data;
 
       setAppState(finalState);
+      setEditedResume(null);
+      setEditedCoverLetter(null);
+      setEditedResponses(null);
+      setEditingTab(null);
       sessionStorage.setItem("appState", JSON.stringify(finalState));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Regeneration failed. Please try again.");
@@ -137,8 +225,11 @@ export default function ReviewOutputPage() {
     setError(null);
     try {
       const applicationId = crypto.randomUUID();
-      const finalResume = appState.final_resume ?? appState.generated_resume ?? "";
-      const finalCoverLetter = appState.final_cover_letter ?? appState.generated_cover_letter ?? null;
+      // Use edited content if present, otherwise fall back to appState values
+      const finalResume =
+        editedResume ?? appState.final_resume ?? appState.generated_resume ?? "";
+      const finalCoverLetter =
+        editedCoverLetter ?? appState.final_cover_letter ?? appState.generated_cover_letter ?? null;
       const roleThemes = appState.extracted_requirements?.role_themes ?? [];
 
       // Insert into job_applications
@@ -184,6 +275,7 @@ export default function ReviewOutputPage() {
   }
 
   const isLoading = critiqueLoading || reviseLoading || regenerateLoading || approveLoading;
+  const editDisabled = isLoading;
   const reviseEnabled =
     canRevise(appState) &&
     appState.current_step === WorkflowStep.REVISION &&
@@ -279,13 +371,19 @@ export default function ReviewOutputPage() {
       {availableTabs.length > 0 && (
         <>
           <div
-            style={{ display: "flex", borderBottom: "2px solid #ddd", marginBottom: 16 }}
+            style={{
+              display: "flex",
+              alignItems: "flex-end",
+              borderBottom: "2px solid #ddd",
+              marginBottom: 16,
+              gap: 0,
+            }}
           >
             {availableTabs.map((tab) => (
               <button
                 key={tab}
                 type="button"
-                onClick={() => setActiveTab(tab)}
+                onClick={() => { setActiveTab(tab); setEditingTab(null); }}
                 style={{
                   padding: "8px 16px",
                   border: "none",
@@ -296,31 +394,111 @@ export default function ReviewOutputPage() {
                   fontWeight: displayTab === tab ? "bold" : "normal",
                   color: displayTab === tab ? "#0070f3" : "#333",
                   marginBottom: -2,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
                 }}
               >
                 {TAB_LABELS[tab]}
+                {isEdited(tab) && editingTab !== tab && (
+                  <span
+                    style={{
+                      fontSize: 10,
+                      background: "#e8f0fe",
+                      color: "#1a56db",
+                      borderRadius: 3,
+                      padding: "1px 5px",
+                      fontWeight: "normal",
+                      lineHeight: 1.6,
+                    }}
+                  >
+                    Edited
+                  </span>
+                )}
               </button>
             ))}
+
+            {/* Edit / Save Edits toggle — aligned to right of tab bar */}
+            <div style={{ marginLeft: "auto", marginBottom: 2 }}>
+              {editingTab === displayTab ? (
+                <span style={{ display: "flex", gap: 8 }}>
+                  <button
+                    type="button"
+                    onClick={() => handleSaveEdits(displayTab)}
+                    style={{
+                      fontSize: 13,
+                      padding: "4px 12px",
+                      background: "#0070f3",
+                      color: "#fff",
+                      border: "none",
+                      borderRadius: 4,
+                      cursor: "pointer",
+                    }}
+                  >
+                    Save Edits
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleCancelEdit}
+                    style={{
+                      fontSize: 13,
+                      padding: "4px 10px",
+                      background: "none",
+                      border: "1px solid #ccc",
+                      borderRadius: 4,
+                      cursor: "pointer",
+                      color: "#555",
+                    }}
+                  >
+                    Cancel
+                  </button>
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => !editDisabled && handleEditClick(displayTab)}
+                  disabled={editDisabled}
+                  style={{
+                    fontSize: 13,
+                    padding: "4px 12px",
+                    background: "none",
+                    border: "1px solid #ccc",
+                    borderRadius: 4,
+                    cursor: editDisabled ? "not-allowed" : "pointer",
+                    color: editDisabled ? "#aaa" : "#333",
+                  }}
+                >
+                  Edit
+                </button>
+              )}
+            </div>
           </div>
 
           <section style={{ marginBottom: 28 }}>
-            <pre
-              style={{
-                whiteSpace: "pre-wrap",
-                fontFamily: displayTab === "resume" ? "monospace" : "inherit",
-                fontSize: 13,
-                lineHeight: 1.7,
-                background: "#fafafa",
-                padding: 16,
-                borderRadius: 4,
-                border: "1px solid #eee",
-                maxHeight: 500,
-                overflowY: "auto",
-                margin: 0,
-              }}
-            >
-              {tabContent(appState, displayTab) ?? ""}
-            </pre>
+            {editingTab === displayTab ? (
+              <AutoResizeTextarea
+                value={draftContent}
+                onChange={setDraftContent}
+              />
+            ) : (
+              <pre
+                style={{
+                  whiteSpace: "pre-wrap",
+                  fontFamily: "monospace",
+                  fontSize: 13,
+                  lineHeight: 1.7,
+                  background: "#fafafa",
+                  padding: 16,
+                  borderRadius: 4,
+                  border: "1px solid #eee",
+                  maxHeight: 500,
+                  overflowY: "auto",
+                  margin: 0,
+                }}
+              >
+                {getDisplayContent(displayTab)}
+              </pre>
+            )}
           </section>
         </>
       )}
