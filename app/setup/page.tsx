@@ -3,13 +3,7 @@
 
 import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { createClient } from "@supabase/supabase-js";
 import { saveProfileIdLocally } from "@/lib/profile";
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
 
 type Screen = "upload" | "style" | "saving" | "saved" | "error";
 
@@ -75,15 +69,19 @@ export default function SetupPage() {
     setScreen("saving");
 
     try {
-      const profileId = crypto.randomUUID();
-
-      const { error } = await supabase.from("master_profile").insert({
-        profile_id: profileId,
-        raw_document: rawDocument,
-        writing_style: writingStyle.trim() || null,
+      const res = await fetch("/api/save-profile", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          raw_document: rawDocument,
+          writing_style: writingStyle.trim() || null,
+        }),
       });
-      if (error) throw new Error(`Failed to save profile: ${error.message}`);
 
+      const result = await res.json();
+      if (!result.success) throw new Error(result.error);
+
+      const profileId: string = result.data.profile_id;
       saveProfileIdLocally(profileId);
 
       if (process.env.NEXT_PUBLIC_PROFILE_ID) {
